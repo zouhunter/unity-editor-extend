@@ -67,7 +67,7 @@ public class LevelEditorE07ToolsMenu : Editor
         EditorApplication.hierarchyWindowChanged += OnSceneChanged;
         //EditorApplication.projectWindowItemOnGUI += OnProjectWindow;
         
-        m_LevelBlocks = AssetDatabase.LoadAssetAtPath<LevelBlocks>("Assets/LearnEditor/my_blocks.asset");
+        m_LevelBlocks = AssetDatabase.LoadAssetAtPath<LevelBlocks>("Assets/Core/SceneEditor/my_blocks.asset");
     }
 
 
