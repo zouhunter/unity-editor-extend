@@ -1,14 +1,15 @@
 ﻿#region statement
-/*【author】        : zouhunter*/
-/*【time】          : 2018/2/2*/
-/*【description】   : 这是一个快速创建类模板的窗体扩展,帮助你减少重复劳动。*/
-/*
-        1.支持枚举、模型、结构和继承等类的模板。
-        2.支持快速创建通用型UI界面脚本
-        3.支持自定义模板类
-        4.自动生成作者、创建时间、描述等功能
-        5.支持工程同步（EditorPrefer）
-*/
+/************************************************************************************* 
+    * 创建时间：       2018-02-02 
+    * 作    者：       zouhunter
+    * 简    介：       这是一个快速创建类模板的窗体扩展,帮助你减少重复劳动。
+    * 详细说明：        
+                       1.支持枚举、模型、结构和继承等类的模板。
+                       2.支持快速创建通用型UI界面脚本
+                       3.支持自定义模板类
+                       4.自动生成作者、创建时间、描述等功能
+                       5.支持工程同步（EditorPrefer）
+   *************************************************************************************/
 #endregion
 
 using System;
@@ -16,9 +17,13 @@ using UnityEngine;
 using UnityEditor;
 using System.Collections.Generic;
 using UnityEditorInternal;
+using System.CodeDom;
+using System.IO;
+using System.Text;
 
 namespace EditorTools
 {
+    #region Window
     /// <summary>
     /// 一个创建脚本模板的窗口
     /// </summary>
@@ -236,6 +241,8 @@ namespace EditorTools
 
         private void OnCreateButtonClicked()
         {
+            headerInfo.author = authorName;
+            headerInfo.time = System.DateTime.Now.ToString("yyyy-MM-dd hh:mm:ss");
             var scriptStr = templates[currentIndex].Create(headerInfo);
             if (string.IsNullOrEmpty(scriptStr))
             {
@@ -268,7 +275,7 @@ namespace EditorTools
             {
                 var scriptPath = string.Format("{0}/{1}.cs", path, headerInfo.scriptName);
                 System.IO.File.WriteAllText(scriptPath, scriptStr, System.Text.Encoding.UTF8);
-
+                AssetDatabase.Refresh();
             }
             else
             {
@@ -276,8 +283,9 @@ namespace EditorTools
             }
         }
     }
+    #endregion
 
-
+    #region Tools
     /// <summary>
     /// 任何脚本的头
     /// </summary>
@@ -289,6 +297,7 @@ namespace EditorTools
         public string description;
         public List<string> detailInfo = new List<string>();
         public string scriptName;
+        public string nameSpace;
     }
 
     /// <summary>
@@ -335,11 +344,14 @@ namespace EditorTools
             }
             else
             {
+                old.type = old.GetType().FullName;
                 return old;
             }
         }
     }
+    #endregion
 
+    #region Templates
     /// <summary>
     /// 代码创建模板的模板
     /// </summary>
@@ -348,18 +360,57 @@ namespace EditorTools
     {
         public string json;
         public string type;
-
         public virtual string Name { get { return null; } }
-        public virtual string Create(TempScriptHeader header) { return null; }
+        public virtual string Create(TempScriptHeader header) { return GetHeader(header); }
         public virtual void OnGUI() { }
-
+        public ScriptTemplate()
+        {
+            type = this.GetType().FullName;
+        }
         internal void SaveToJson()
         {
             json = null;
             json = JsonUtility.ToJson(this);
             type = this.GetType().FullName;
         }
+        protected string GetHeader(TempScriptHeader header)
+        {
+
+            var str1 = "#region statement\r\n" +
+            "/*************************************************************************************   \r\n" +
+            "    * 创建时间：       {0}\r\n" +
+            "    * 作    者：       {1}\r\n" +
+            "    * 简    介：       {2}。\r\n" +
+            "    * 详细说明：\r\n";
+            var str2 = "\r\n                       ";
+            var str3 = "\r\n* ************************************************************************************/" +
+            "\r\n#endregion";
+
+            var headerStr = string.Format(str1,  header.time, header.author, header.description);
+            for (int i = 0; i < header.detailInfo.Count; i++)
+            {
+                headerStr += string.Format("{0}{1}.{2}", str2 ,i + 1,header.detailInfo[i]);
+            }
+            headerStr += str3;
+            return headerStr;
+        }
+
+        protected string ComplieToString(CodeNamespace nameSpaceUnit)
+        {
+            using (Microsoft.CSharp.CSharpCodeProvider cprovider = new Microsoft.CSharp.CSharpCodeProvider())
+            {
+                StringBuilder fileContent = new StringBuilder();
+
+                using (StringWriter sw = new StringWriter(fileContent))
+                {
+                    cprovider.GenerateCodeFromNamespace(nameSpaceUnit, sw, new System.CodeDom.Compiler.CodeGeneratorOptions());
+                }
+                return fileContent.ToString();
+            }
+        }
     }
+    #endregion
+
 
     /// <summary>
     /// 1.枚举类型脚本
@@ -375,20 +426,42 @@ namespace EditorTools
             }
         }
         [SerializeField]
-        private List<string> types = new List<string>();
+        private List<string> elements = new List<string>();
         private ReorderableList reorderableList;
 
         public EnumScriptTemplate()
         {
-            reorderableList = new ReorderableList(types, typeof(string));
-            reorderableList.onAddCallback += (x) => { types.Add(""); };
+            reorderableList = new ReorderableList(elements, typeof(string));
+            reorderableList.onAddCallback += (x) => { elements.Add(""); };
             reorderableList.drawHeaderCallback += (x) => { EditorGUI.LabelField(x, "枚举列表"); };
-            reorderableList.drawElementCallback += (x, y, z, w) => { types[y] = EditorGUI.TextField(x, types[y]); };
+            reorderableList.drawElementCallback += (x, y, z, w) => { elements[y] = EditorGUI.TextField(x, elements[y]); };
         }
         public override string Create(TempScriptHeader header)
         {
-            return "xxX";
+            List<CodeMemberField> fields = new List<CodeMemberField>();
+            foreach (var item in elements)
+            {
+                CodeMemberField prop = new CodeMemberField();
+                prop.Name = item;
+                //prop.Comments.Add(new CodeCommentStatement("sgfsdg"));
+                fields.Add(prop);
+            }
+
+            CodeTypeDeclaration wrapProxyClass = new CodeTypeDeclaration(header.scriptName);
+            wrapProxyClass.TypeAttributes = System.Reflection.TypeAttributes.Public;
+            wrapProxyClass.IsEnum = true;
+
+            //wrapProxyClass.Comments.Add(new CodeCommentStatement(header.description));
+            foreach (var field in fields)
+            {
+                wrapProxyClass.Members.Add(field);
+            }
+            CodeNamespace nameSpace = new CodeNamespace(header.nameSpace);
+            nameSpace.Types.Add(wrapProxyClass);
+            var headerStr = base.Create(header);
+            return headerStr + ComplieToString(nameSpace);
         }
+
 
         public override void OnGUI()
         {
