@@ -27,7 +27,7 @@ namespace EditorTools
         [MenuItem("Tools/TempScriptWindow")]
         static void Open()
         {
-            var window = GetWindow<TempScriptWindow>();
+            var window = TempScriptHelper.GetWindow();
             window.wantsMouseMove = true;
         }
 
@@ -46,12 +46,24 @@ namespace EditorTools
         private TempScriptHeader headerInfo;
         private Vector2 scrollPos;
         private ReorderableList detailList;
+
         private void OnEnable()
         {
             InitEnviroment();
-            RegistTempates();
         }
 
+        private void OnDisable()
+        {
+            if (templates != null)
+            {
+                foreach (var item in templates)
+                {
+                    item.SaveToJson();
+                }
+            }
+            EditorUtility.SetDirty(this);
+            TempScriptHelper.SaveWindow(this);
+        }
         private void OnGUI()
         {
             DrawHead();
@@ -62,11 +74,29 @@ namespace EditorTools
             }
             else
             {
+                if (templates == null)
+                {
+                    Debug.Log("templates == null");
+                    templates = new List<ScriptTemplate>();
+                }
+                
+                if(templates.Count == 0)
+                {
+                    AddTemplates();
+                }
+
                 currentIndex = GUILayout.Toolbar(currentIndex, templateNames);
                 using (var scroll = new EditorGUILayout.ScrollViewScope(scrollPos))
                 {
                     scrollPos = scroll.scrollPosition;
-                    templates[currentIndex].OnGUI();
+                    if (templates.Count > currentIndex)
+                    {
+                        templates[currentIndex].OnGUI();
+                    }
+                    else
+                    {
+                        templates.Clear();
+                    }
                 }
                 DrawFoot();
             }
@@ -77,32 +107,50 @@ namespace EditorTools
         {
             if (headerInfo == null) headerInfo = new TempScriptHeader();
             if (script == null) script = MonoScript.FromScriptableObject(this);
-            if(string.IsNullOrEmpty(authorName)) authorName = TempScriptHelper.GetAuthor();
+            if (string.IsNullOrEmpty(authorName)) authorName = TempScriptHelper.GetAuthor();
             if (string.IsNullOrEmpty(authorName))
             {
                 isSetting = true;
             }
-            if(detailList == null)
+            if (detailList == null)
             {
-                detailList = new ReorderableList(headerInfo.detailInfo, typeof(string),true,false,true,true);
+                detailList = new ReorderableList(headerInfo.detailInfo, typeof(string), true, false, true, true);
                 detailList.onAddCallback += (x) => { headerInfo.detailInfo.Add(""); };
                 detailList.drawHeaderCallback = (x) => { EditorGUI.LabelField(x, "详细信息"); };
-                detailList.drawElementCallback += (x,y,z,w) => { headerInfo.detailInfo[y] = EditorGUI.TextField(x, headerInfo.detailInfo[y]); };
+                detailList.drawElementCallback += (x, y, z, w) => { headerInfo.detailInfo[y] = EditorGUI.TextField(x, headerInfo.detailInfo[y]); };
             }
         }
 
-        private void RegistTempates()
+        private void AddTemplates()
         {
-            if(templates == null)
+            templates.Add(new EnumScriptTemplate());
+            templates.Add(new StaticClassTemplate());
+            templates.Add(new DataModelTemplate());
+            templates.Add(new ExtendClassTemplate());
+            templates.Add(new StructTempate());
+            templates.Add(new UIPanelTempate());
+            templateNames = templates.ConvertAll<string>(x => x.Name).ToArray();
+        }
+
+        public void LoadOldTemplates()
+        {
+            for (int i = 0; i < templates.Count; i++)
             {
-                templates = new List<ScriptTemplate>();
-                templates.Add(new EnumScriptTemplate());
-                templates.Add(new StaticClassTemplate());
-                templates.Add(new DataModelTemplate());
-                templates.Add(new ExtendClassTemplate());
-                templates.Add(new StructTempate());
-                templates.Add(new UIPanelTempate());
-                templateNames = templates.ConvertAll<string>(x => x.Name).ToArray();
+                if(templates[i] == null)
+                {
+                    templates = null;
+                    return;
+                }
+
+                var newitem = ScriptTemplate.LoadFromJson(templates[i]);
+
+                if(newitem == null)
+                {
+                    templates = null;
+                    return;
+                }
+
+                templates[i] = newitem;
             }
         }
 
@@ -151,7 +199,19 @@ namespace EditorTools
                     OnCreateButtonClicked();
                 }
             }
-            detailList.DoLayoutList();
+            using (var hor = new EditorGUILayout.HorizontalScope())
+            {
+                using (var vertical = new EditorGUILayout.VerticalScope())
+                {
+                    detailList.DoLayoutList();
+                }
+                if (GUILayout.Button("Clear", EditorStyles.miniButtonRight, GUILayout.Width(60)))
+                {
+                    headerInfo = new TempScriptHeader();
+                    templates.Clear();
+                    AddTemplates();
+                }
+            }
         }
 
         private void OnCreateButtonClicked()
@@ -193,7 +253,7 @@ namespace EditorTools
     public static class TempScriptHelper
     {
         private const string prefer_key = "temp_script_autor_name";
-
+        private const string prefer_window = "temp_script_window";
         public static void SaveAuthor(string author)
         {
             EditorPrefs.SetString(prefer_key, author);
@@ -203,6 +263,24 @@ namespace EditorTools
         {
             return EditorPrefs.GetString(prefer_key);
         }
+
+        public static void SaveWindow(TempScriptWindow window)
+        {
+            var json = JsonUtility.ToJson(window);
+            EditorPrefs.SetString(prefer_window, json);
+        }
+        public static TempScriptWindow GetWindow()
+        {
+            var window = EditorWindow.GetWindow<TempScriptWindow>();
+            if (EditorPrefs.HasKey(prefer_key))
+            {
+                var json = EditorPrefs.GetString(prefer_window);
+                JsonUtility.FromJsonOverwrite(json, window);
+                window.LoadOldTemplates();
+                return window;
+            }
+            return window;
+        }
     }
 
     /// <summary>
@@ -211,9 +289,28 @@ namespace EditorTools
     [System.Serializable]
     public class ScriptTemplate
     {
+        [SerializeField]
+        protected string _json;
+        [SerializeField]
+        protected string _type;
+
         public virtual string Name { get { return null; } }
         public virtual string Create(TempScriptHeader header) { return null; }
         public virtual void OnGUI() { }
+
+        internal static ScriptTemplate LoadFromJson(ScriptTemplate old)
+        {
+            var temp = Activator.CreateInstance(Type.GetType(old._type));
+            JsonUtility.FromJsonOverwrite(old._json, temp);
+            return temp as ScriptTemplate;
+        }
+
+        internal void SaveToJson()
+        {
+            _json = null;
+            _json = JsonUtility.ToJson(this);
+            _type = this.GetType().FullName;
+        }
     }
 
     /// <summary>
@@ -235,7 +332,6 @@ namespace EditorTools
 
         public EnumScriptTemplate()
         {
-            Debug.Log("EnumScriptTemplate");
             reorderableList = new ReorderableList(types, typeof(string));
             reorderableList.onAddCallback += (x) => { types.Add(""); };
             reorderableList.drawHeaderCallback += (x) => { EditorGUI.LabelField(x, "枚举列表"); };
