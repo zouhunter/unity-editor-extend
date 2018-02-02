@@ -58,6 +58,7 @@ namespace EditorTools
             {
                 foreach (var item in templates)
                 {
+
                     item.SaveToJson();
                 }
             }
@@ -76,13 +77,30 @@ namespace EditorTools
             {
                 if (templates == null)
                 {
-                    Debug.Log("templates == null");
+                    Debug.Log("template == null");
                     templates = new List<ScriptTemplate>();
                 }
-                
-                if(templates.Count == 0)
+
+                if (templates.Count == 0)
                 {
+
+                    Debug.Log("AddTemplates");
                     AddTemplates();
+                }
+
+                if (headerInfo == null)
+                {
+                    headerInfo = new TempScriptHeader();
+                }
+
+                if (detailList == null)
+                {
+                    InitDetailList();
+                }
+
+                if (detailList.list != headerInfo.detailInfo)
+                {
+                    detailList.list = headerInfo.detailInfo;
                 }
 
                 currentIndex = GUILayout.Toolbar(currentIndex, templateNames);
@@ -91,6 +109,11 @@ namespace EditorTools
                     scrollPos = scroll.scrollPosition;
                     if (templates.Count > currentIndex)
                     {
+                        var currentTemplates = templates[currentIndex];
+                        if (currentTemplates.GetType().FullName != currentTemplates.type)
+                        {
+                            templates[currentIndex] = TempScriptHelper.LoadFromJson(currentTemplates);
+                        }
                         templates[currentIndex].OnGUI();
                     }
                     else
@@ -102,22 +125,21 @@ namespace EditorTools
             }
 
         }
+        private void InitDetailList()
+        {
+            detailList = new ReorderableList(headerInfo.detailInfo, typeof(string), true, false, true, true);
+            detailList.onAddCallback += (x) => { headerInfo.detailInfo.Add(""); };
+            detailList.drawHeaderCallback = (x) => { EditorGUI.LabelField(x, "详细信息"); };
+            detailList.drawElementCallback += (x, y, z, w) => { headerInfo.detailInfo[y] = EditorGUI.TextField(x, headerInfo.detailInfo[y]); };
+        }
 
         private void InitEnviroment()
         {
-            if (headerInfo == null) headerInfo = new TempScriptHeader();
             if (script == null) script = MonoScript.FromScriptableObject(this);
             if (string.IsNullOrEmpty(authorName)) authorName = TempScriptHelper.GetAuthor();
             if (string.IsNullOrEmpty(authorName))
             {
                 isSetting = true;
-            }
-            if (detailList == null)
-            {
-                detailList = new ReorderableList(headerInfo.detailInfo, typeof(string), true, false, true, true);
-                detailList.onAddCallback += (x) => { headerInfo.detailInfo.Add(""); };
-                detailList.drawHeaderCallback = (x) => { EditorGUI.LabelField(x, "详细信息"); };
-                detailList.drawElementCallback += (x, y, z, w) => { headerInfo.detailInfo[y] = EditorGUI.TextField(x, headerInfo.detailInfo[y]); };
             }
         }
 
@@ -136,20 +158,19 @@ namespace EditorTools
         {
             for (int i = 0; i < templates.Count; i++)
             {
-                if(templates[i] == null)
+                if (templates[i] == null)
                 {
                     templates = null;
                     return;
                 }
 
-                var newitem = ScriptTemplate.LoadFromJson(templates[i]);
+                var newitem = TempScriptHelper.LoadFromJson(templates[i]);
 
-                if(newitem == null)
+                if (newitem == null)
                 {
                     templates = null;
                     return;
                 }
-
                 templates[i] = newitem;
             }
         }
@@ -207,24 +228,47 @@ namespace EditorTools
                 }
                 if (GUILayout.Button("Clear", EditorStyles.miniButtonRight, GUILayout.Width(60)))
                 {
-                    headerInfo = new TempScriptHeader();
+                    headerInfo = null;
                     templates.Clear();
-                    AddTemplates();
                 }
             }
         }
 
         private void OnCreateButtonClicked()
         {
+            var scriptStr = templates[currentIndex].Create(headerInfo);
+            if (string.IsNullOrEmpty(scriptStr))
+            {
+                EditorUtility.DisplayDialog("生成失败", "请看日志！", "确认");
+                return;
+            }
+
+            if (string.IsNullOrEmpty(headerInfo.scriptName))
+            {
+                EditorUtility.DisplayDialog("脚本名为空", "请填写代码名称！", "确认");
+                return;
+            }
+
+
+            string path = null;
             if (ProjectWindowUtil.IsFolder(Selection.activeInstanceID))
             {
-                var scriptStr = templates[currentIndex].Create(headerInfo);
-                if (!string.IsNullOrEmpty(scriptStr) && !string.IsNullOrEmpty(headerInfo.scriptName))
+                path = AssetDatabase.GetAssetPath(Selection.activeInstanceID);
+            }
+            else if (Selection.activeObject != null)
+            {
+                var assetPath = AssetDatabase.GetAssetPath(Selection.activeObject);
+                if (!string.IsNullOrEmpty(assetPath))
                 {
-                    var path = AssetDatabase.GetAssetPath(Selection.activeInstanceID);
-                    var scriptPath = string.Format("{0}/{1}.cs", path, headerInfo.scriptName);
-                    System.IO.File.WriteAllText(scriptPath, scriptStr, System.Text.Encoding.UTF8);
+                    path = assetPath.Replace(System.IO.Path.GetFileName(assetPath), "");
                 }
+            }
+
+            if (!string.IsNullOrEmpty(path))
+            {
+                var scriptPath = string.Format("{0}/{1}.cs", path, headerInfo.scriptName);
+                System.IO.File.WriteAllText(scriptPath, scriptStr, System.Text.Encoding.UTF8);
+
             }
             else
             {
@@ -281,6 +325,19 @@ namespace EditorTools
             }
             return window;
         }
+        internal static ScriptTemplate LoadFromJson(ScriptTemplate old)
+        {
+            if (!string.IsNullOrEmpty(old.type) && old.GetType().FullName != old.type)
+            {
+                var temp = Activator.CreateInstance(Type.GetType(old.type));
+                JsonUtility.FromJsonOverwrite(old.json, temp);
+                return temp as ScriptTemplate;
+            }
+            else
+            {
+                return old;
+            }
+        }
     }
 
     /// <summary>
@@ -289,27 +346,18 @@ namespace EditorTools
     [System.Serializable]
     public class ScriptTemplate
     {
-        [SerializeField]
-        protected string _json;
-        [SerializeField]
-        protected string _type;
+        public string json;
+        public string type;
 
         public virtual string Name { get { return null; } }
         public virtual string Create(TempScriptHeader header) { return null; }
         public virtual void OnGUI() { }
 
-        internal static ScriptTemplate LoadFromJson(ScriptTemplate old)
-        {
-            var temp = Activator.CreateInstance(Type.GetType(old._type));
-            JsonUtility.FromJsonOverwrite(old._json, temp);
-            return temp as ScriptTemplate;
-        }
-
         internal void SaveToJson()
         {
-            _json = null;
-            _json = JsonUtility.ToJson(this);
-            _type = this.GetType().FullName;
+            json = null;
+            json = JsonUtility.ToJson(this);
+            type = this.GetType().FullName;
         }
     }
 
