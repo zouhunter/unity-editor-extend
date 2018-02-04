@@ -962,7 +962,7 @@ namespace EditorTools
                 prop.Name = item.elementName;
                 prop.HasGet = item.get;
                 prop.HasSet = item.set;
-                CodeExpression invokeExpression = new CodePropertyReferenceExpression();
+                //CodeExpression invokeExpression = new CodePropertyReferenceExpression();
                 prop.GetStatements.Add(new CodeMethodReturnStatement(new CodePrimitiveExpression(null)));
                 prop.Comments.Add(new CodeCommentStatement(item.comment));
                 propertysMemper.Add(prop);
