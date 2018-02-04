@@ -163,12 +163,17 @@ namespace EditorTools
 
         private void AddTemplates()
         {
-            templates.Add(new EnumScriptTemplate());
-            templates.Add(new StaticClassTemplate());
-            templates.Add(new DataModelTemplate());
-            templates.Add(new ExtendClassTemplate());
-            templates.Add(new StructTempate());
-            templates.Add(new UIPanelTempate());
+            var assemble = this.GetType().Assembly;
+            var allTypes = assemble.GetTypes();
+            foreach (var item in allTypes)
+            {
+                if (item.IsSubclassOf(typeof(ScriptTemplate)))
+                {
+                    var template = Activator.CreateInstance(item);
+                    templates.Add(template as ScriptTemplate);
+                }
+            }
+          
             foreach (var item in templates)
             {
                 item.OnEnable();
@@ -196,6 +201,8 @@ namespace EditorTools
                 }
                 templates[i] = newitem;
             }
+            templateNames = templates.ConvertAll<string>(x => x.Name).ToArray();
+            templateType = templates.ConvertAll<Type>(x => x.GetType()).ToArray();
         }
 
         private void DrawHead()
@@ -285,6 +292,7 @@ namespace EditorTools
         private const string prefer_key = "temp_script_autor_name";
         private const string prefer_window = "temp_script_window";
         private const string code_rule_show = "temp_script_code_rule_show";
+
         public static void SaveAuthor(string author)
         {
             EditorPrefs.SetString(prefer_key, author);
@@ -388,6 +396,16 @@ namespace EditorTools
     [System.Serializable]
     public class ScriptTemplate
     {
+        [System.Serializable]
+        public class FieldItem
+        {
+            public string type;
+            public string elementName;
+            public string comment;
+        }
+        [SerializeField]
+        protected List<FieldItem> elements = new List<FieldItem>();
+
         public string json;
         public string type;
         public TempScriptHeader headerInfo = new TempScriptHeader();
@@ -475,6 +493,34 @@ namespace EditorTools
             detailList.onAddCallback += (x) => { headerInfo.detailInfo.Add(""); };
             detailList.drawHeaderCallback = (x) => { EditorGUI.LabelField(x, "详细信息"); };
             detailList.drawElementCallback += (x, y, z, w) => { headerInfo.detailInfo[y] = EditorGUI.TextField(x, headerInfo.detailInfo[y]); };
+        }
+
+        protected void DrawDataItem(Rect rect, FieldItem dataItem,bool haveType)
+        {
+            if (haveType)
+            {
+                var rect01 = new Rect(rect.x, rect.y, rect.width * 0.2f, EditorGUIUtility.singleLineHeight);
+                var typeRect = new Rect(rect.x + 0.2f * rect.width, rect.y, rect.width * 0.1f, EditorGUIUtility.singleLineHeight);
+                var rect02 = new Rect(rect.x + rect.width * 0.3f, rect.y, rect.width * 0.3f, EditorGUIUtility.singleLineHeight);
+                var commentRect = new Rect(rect.x + 0.6f * rect.width, rect.y, rect.width * 0.1f, EditorGUIUtility.singleLineHeight);
+                var rect03 = new Rect(rect.x + rect.width * 0.7f, rect.y, rect.width * 0.3f, EditorGUIUtility.singleLineHeight);
+
+                dataItem.elementName = EditorGUI.TextField(rect01, dataItem.elementName);
+                EditorGUI.LabelField(typeRect, "Type");
+                dataItem.type = EditorGUI.TextField(rect02, dataItem.type);
+                EditorGUI.LabelField(commentRect, "Comment");
+                dataItem.comment = EditorGUI.TextField(rect03, dataItem.comment);
+            }
+            else
+            {
+                var left = new Rect(rect.x, rect.y, rect.width * 0.3f, EditorGUIUtility.singleLineHeight);
+                var right = new Rect(rect.x + rect.width * 0.4f, rect.y, rect.width * 0.6f, EditorGUIUtility.singleLineHeight);
+                var center = new Rect(rect.x + rect.width * 0.3f, rect.y, rect.width * 0.1f, EditorGUIUtility.singleLineHeight);
+                dataItem.elementName = EditorGUI.TextField(left, dataItem.elementName);
+                EditorGUI.LabelField(center, "Comment");
+                dataItem.comment = EditorGUI.TextField(right, dataItem.comment);
+            }
+           
         }
         protected virtual CodeNamespace CreateNameSpace()
         {
@@ -632,37 +678,20 @@ namespace EditorTools
                 return "Enum";
             }
         }
-        [SerializeField]
-        private List<EnumItem> elements = new List<EnumItem>();
-        private ReorderableList reorderableList;
 
-        [System.Serializable]
-        public class EnumItem
-        {
-            public string elementName;
-            public string comment;
-        }
+        private ReorderableList reorderableList;
 
         public EnumScriptTemplate()
         {
             reorderableList = new ReorderableList(elements, typeof(string));
-            reorderableList.onAddCallback += (x) => { elements.Add(new EnumItem()); };
+            reorderableList.onAddCallback += (x) => { elements.Add(new FieldItem()); };
             reorderableList.drawHeaderCallback += (x) => { EditorGUI.LabelField(x, "枚举列表"); };
             reorderableList.drawElementCallback += (x, y, z, w) =>
             {
-                DrawEnumItem(x, elements[y]);
+                DrawDataItem(x, elements[y],false);
             };
         }
 
-        protected void DrawEnumItem(Rect rect, EnumItem tupe)
-        {
-            var left = new Rect(rect.x, rect.y, rect.width * 0.3f, EditorGUIUtility.singleLineHeight);
-            var right = new Rect(rect.x + rect.width * 0.4f, rect.y, rect.width * 0.6f, EditorGUIUtility.singleLineHeight);
-            var center = new Rect(rect.x + rect.width * 0.3f, rect.y, rect.width * 0.1f, EditorGUIUtility.singleLineHeight);
-            tupe.elementName = EditorGUI.TextField(left, tupe.elementName);
-            EditorGUI.LabelField(center, "Comment");
-            tupe.comment = EditorGUI.TextField(right, tupe.comment);
-        }
         protected override CodeNamespace CreateNameSpace()
         {
             List<CodeMemberField> fields = new List<CodeMemberField>();
@@ -702,13 +731,6 @@ namespace EditorTools
     [Serializable]
     public class DataModelTemplate : ScriptTemplate
     {
-        [System.Serializable]
-        public class DataItem
-        {
-            public string type;
-            public string elementName;
-            public string comment;
-        }
         public override string Name
         {
             get
@@ -716,8 +738,6 @@ namespace EditorTools
                 return "Model";
             }
         }
-        [SerializeField]
-        private List<DataItem> elements = new List<DataItem>();
 
         [SerializeField]
         private List<string> imports = new List<string>() {
@@ -733,11 +753,11 @@ namespace EditorTools
         public DataModelTemplate()
         {
             reorderableList = new ReorderableList(elements, typeof(string));
-            reorderableList.onAddCallback += (x) => { elements.Add(new DataItem()); };
+            reorderableList.onAddCallback += (x) => { elements.Add(new FieldItem()); };
             reorderableList.drawHeaderCallback += (x) => { EditorGUI.LabelField(x, "模型名"); };
             reorderableList.drawElementCallback += (x, y, z, w) =>
             {
-                DrawDataItem(x, elements[y]);
+                DrawDataItem(x, elements[y],true);
             };
 
             nameSpaceList = new ReorderableList(imports, typeof(string));
@@ -748,6 +768,7 @@ namespace EditorTools
                 imports[y] = DrawNameSpace(x, imports[y]);
             };
         }
+
         protected override CodeNamespace CreateNameSpace()
         {
             List<CodeMemberField> fields = new List<CodeMemberField>();
@@ -765,9 +786,9 @@ namespace EditorTools
             wrapProxyClass.TypeAttributes = System.Reflection.TypeAttributes.Public;
             wrapProxyClass.CustomAttributes.Add(new CodeAttributeDeclaration(typeof(System.SerializableAttribute).FullName));
             wrapProxyClass.IsClass = true;
-
+            var destription = string.IsNullOrEmpty(headerInfo.description) ? "数据模型" : headerInfo.description;
             wrapProxyClass.Comments.Add(new CodeCommentStatement("<summary>", true));
-            wrapProxyClass.Comments.Add(new CodeCommentStatement(headerInfo.description, true));
+            wrapProxyClass.Comments.Add(new CodeCommentStatement(destription, true));
             wrapProxyClass.Comments.Add(new CodeCommentStatement("<summary>", true));
             foreach (var field in fields)
             {
@@ -779,17 +800,7 @@ namespace EditorTools
             return nameSpace;
         }
 
-        private void DrawDataItem(Rect rect, DataItem dataItem)
-        {
-            var rect01 = new Rect(rect.x, rect.y, rect.width * 0.2f, EditorGUIUtility.singleLineHeight);
-            var rect02 = new Rect(rect.x + rect.width * 0.3f, rect.y, rect.width * 0.3f, EditorGUIUtility.singleLineHeight);
-            var rect03 = new Rect(rect.x + rect.width * 0.7f, rect.y, rect.width * 0.3f, EditorGUIUtility.singleLineHeight);
-
-            dataItem.elementName = EditorGUI.TextField(rect01, dataItem.elementName);
-            dataItem.type = EditorGUI.TextField(rect02, dataItem.type);
-            dataItem.comment = EditorGUI.TextField(rect03, dataItem.comment);
-        }
-
+     
         private string DrawNameSpace(Rect rect, string dataItem)
         {
             var rect1 = new Rect(rect.x, rect.y, rect.width, EditorGUIUtility.singleLineHeight);
@@ -870,15 +881,77 @@ namespace EditorTools
                 return "Struct";
             }
         }
+        
+        [SerializeField]
+        private List<string> imports = new List<string>() {
+            "System",
+            "UnityEngine",
+            "UnityEngine.UI",
+            "System.Collections",
+            "System.Collections.Generic",
+        };
+        private ReorderableList nameSpaceList;
+        private ReorderableList reorderableList;
+
+        public StructTempate()
+        {
+            reorderableList = new ReorderableList(elements, typeof(string));
+            reorderableList.onAddCallback += (x) => { elements.Add(new FieldItem()); };
+            reorderableList.drawHeaderCallback += (x) => { EditorGUI.LabelField(x, "模型名"); };
+            reorderableList.drawElementCallback += (x, y, z, w) =>
+            {
+                DrawDataItem(x, elements[y],true);
+            };
+
+            nameSpaceList = new ReorderableList(imports, typeof(string));
+            nameSpaceList.onAddCallback += (x) => { imports.Add(""); };
+            nameSpaceList.drawHeaderCallback += (x) => { EditorGUI.LabelField(x, "命名空间"); };
+            nameSpaceList.drawElementCallback += (x, y, z, w) =>
+            {
+                imports[y] = DrawNameSpace(x, imports[y]);
+            };
+        }
 
         protected override CodeNamespace CreateNameSpace()
         {
-            return null;
+            List<CodeMemberField> fields = new List<CodeMemberField>();
+            foreach (var item in elements)
+            {
+                CodeMemberField prop = new CodeMemberField();
+                prop.Type = new CodeTypeReference(item.type, CodeTypeReferenceOptions.GenericTypeParameter);
+                prop.Attributes = MemberAttributes.Public;
+                prop.Name = item.elementName;
+                prop.Comments.Add(new CodeCommentStatement(item.comment));
+                fields.Add(prop);
+            }
+
+            CodeTypeDeclaration wrapProxyClass = new CodeTypeDeclaration(headerInfo.scriptName);
+            wrapProxyClass.TypeAttributes = System.Reflection.TypeAttributes.Public;
+            wrapProxyClass.IsStruct = true;
+            var destription = string.IsNullOrEmpty(headerInfo.description) ? "结构体" : headerInfo.description;
+            wrapProxyClass.Comments.Add(new CodeCommentStatement("<summary>", true));
+            wrapProxyClass.Comments.Add(new CodeCommentStatement(destription, true));
+            wrapProxyClass.Comments.Add(new CodeCommentStatement("<summary>", true));
+            foreach (var field in fields)
+            {
+                wrapProxyClass.Members.Add(field);
+            }
+            CodeNamespace nameSpace = new CodeNamespace(headerInfo.nameSpace);
+            nameSpace.Types.Add(wrapProxyClass);
+            nameSpace.Imports.AddRange(imports.ConvertAll<CodeNamespaceImport>(x => new CodeNamespaceImport(x)).ToArray());
+            return nameSpace;
+        }
+
+        private string DrawNameSpace(Rect rect, string dataItem)
+        {
+            var rect1 = new Rect(rect.x, rect.y, rect.width, EditorGUIUtility.singleLineHeight);
+            return EditorGUI.TextField(rect1, dataItem);
         }
 
         public override void OnBodyGUI()
         {
-
+            nameSpaceList.DoLayoutList();
+            reorderableList.DoLayoutList();
         }
     }
 
