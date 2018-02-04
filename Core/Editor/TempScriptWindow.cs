@@ -29,7 +29,7 @@ namespace EditorTools
     /// </summary>
     public class TempScriptWindow : EditorWindow
     {
-        [MenuItem("Tools/TempScriptWindow")]
+        [MenuItem("Window/TempScriptWindow")]
         static void Open()
         {
             var window = TempScriptHelper.GetWindow();
@@ -723,7 +723,7 @@ namespace EditorTools
     [Serializable]
     public class EnumScriptTemplate : ScriptTemplate
     {
-        [MenuItem("Assets/Create/TempScript C#/Enum", priority = 5)]
+        [MenuItem("Assets/Create/C# TempScripts/Enum", priority = 5)]
         static void CreateEnum()
         {
             TempScriptHelper.QuickCreateTemplate<EnumScriptTemplate>();
@@ -791,7 +791,7 @@ namespace EditorTools
     [Serializable]
     public class DataModelTemplate : ScriptTemplate
     {
-        [MenuItem("Assets/Create/TempScript C#/Model", priority = 5)]
+        [MenuItem("Assets/Create/C# TempScripts/Model", priority = 5)]
         static void CreateModel()
         {
             TempScriptHelper.QuickCreateTemplate<DataModelTemplate>();
@@ -887,7 +887,7 @@ namespace EditorTools
     [Serializable]
     public class StaticClassTemplate : ScriptTemplate
     {
-        [MenuItem("Assets/Create/TempScript C#/Static", priority = 5)]
+        [MenuItem("Assets/Create/C# TempScripts/Static", priority = 5)]
         static void CreateModel()
         {
             TempScriptHelper.QuickCreateTemplate<StaticClassTemplate>();
@@ -1013,7 +1013,7 @@ namespace EditorTools
     [Serializable]
     public class StructTempate : ScriptTemplate
     {
-        [MenuItem("Assets/Create/TempScript C#/Struct", priority = 5)]
+        [MenuItem("Assets/Create/C# TempScripts/Struct", priority = 5)]
         static void CreateStruct()
         {
             TempScriptHelper.QuickCreateTemplate<StructTempate>();
@@ -1108,7 +1108,7 @@ namespace EditorTools
     [Serializable]
     public class InterfaceTempate : ScriptTemplate
     {
-        [MenuItem("Assets/Create/TempScript C#/Interface", priority = 5)]
+        [MenuItem("Assets/Create/C# TempScripts/Interface", priority = 5)]
         static void CreateEnum()
         {
             TempScriptHelper.QuickCreateTemplate<InterfaceTempate>();
