@@ -38,6 +38,7 @@ namespace EditorTools
 
         [SerializeField]
         private List<ScriptTemplate> templates;
+        ScriptTemplate currentTemplates { get { if (templates != null && templates.Count > currentIndex) return templates[currentIndex]; return null; } }
         private MonoScript script;
         [SerializeField]
         private bool isSetting;
@@ -47,13 +48,9 @@ namespace EditorTools
         private string[] templateNames;
         [SerializeField]
         private int currentIndex;
-        [SerializeField]
-        private TempScriptHeader headerInfo;
         private Vector2 scrollPos;
-        private ReorderableList detailList;
-        [SerializeField]
-        private string path;
-       
+        private Dictionary<string, Type> templateDic = new Dictionary<string, Type>();
+
         private void OnEnable()
         {
             InitEnviroment();
@@ -94,39 +91,33 @@ namespace EditorTools
                     AddTemplates();
                 }
 
-                if (headerInfo == null)
-                {
-                    headerInfo = new TempScriptHeader();
-                }
-
-                if (detailList == null)
-                {
-                    InitDetailList();
-                }
-
-                if (detailList.list != headerInfo.detailInfo)
-                {
-                    detailList.list = headerInfo.detailInfo;
-                }
-
                 currentIndex = GUILayout.Toolbar(currentIndex, templateNames);
                 using (var scroll = new EditorGUILayout.ScrollViewScope(scrollPos))
                 {
                     scrollPos = scroll.scrollPosition;
-                    if (templates.Count > currentIndex)
+
+                    if (currentTemplates != null)
                     {
-                        var currentTemplates = templates[currentIndex];
                         if (currentTemplates.GetType().FullName != currentTemplates.type)
                         {
-                            currentTemplates = templates[currentIndex] = TempScriptHelper.LoadFromJson(currentTemplates);
+                            templates[currentIndex] = TempScriptHelper.LoadFromJson(currentTemplates);
                         }
 
-                        currentTemplates.OnGUI();
+                        currentTemplates.OnBodyGUI();
 
                         if (currentTemplates.GetType().FullName == typeof(ScriptTemplate).FullName)
                         {
-                            templates.Clear();
-                            Debug.Log(currentTemplates.GetType());
+                            var key = templateNames[currentIndex];
+                            if(templateDic.ContainsKey(key))
+                            {
+                                templates[currentIndex] = Activator.CreateInstance(templateDic[key]) as ScriptTemplate;
+                                Debug.Log("create new:" + currentTemplates.GetType());
+                            }
+                            else
+                            {
+                                Debug.Log("unknow err: clear templates");
+                                templates.Clear();
+                            }
                         }
                     }
                     else
@@ -135,17 +126,15 @@ namespace EditorTools
                         Debug.Log("templates.Count <= currentIndex");
                     }
                 }
-                DrawFoot();
+                if(currentTemplates != null)
+                {
+                    currentTemplates.OnFootGUI();
+                }
+               
             }
 
         }
-        private void InitDetailList()
-        {
-            detailList = new ReorderableList(headerInfo.detailInfo, typeof(string), true, false, true, true);
-            detailList.onAddCallback += (x) => { headerInfo.detailInfo.Add(""); };
-            detailList.drawHeaderCallback = (x) => { EditorGUI.LabelField(x, "详细信息"); };
-            detailList.drawElementCallback += (x, y, z, w) => { headerInfo.detailInfo[y] = EditorGUI.TextField(x, headerInfo.detailInfo[y]); };
-        }
+
 
         private void InitEnviroment()
         {
@@ -169,6 +158,7 @@ namespace EditorTools
             foreach (var item in templates)
             {
                 //不能再父级的构造器中与获取type的方法
+                templateDic.Add(item.Name, item.GetType());
                 item.OnEnable();
             }
             templateNames = templates.ConvertAll<string>(x => x.Name).ToArray();
@@ -209,6 +199,12 @@ namespace EditorTools
                     isSetting = false;
                 }
             }
+
+            if (GUILayout.Button("Clear", EditorStyles.toolbarButton))
+            {
+                currentTemplates.headerInfo = null;
+                templates.Clear();
+            }
         }
 
         private void DrawSettings()
@@ -227,122 +223,8 @@ namespace EditorTools
                 }
             }
         }
-        private void DrawFoot()
-        {
-            using (var horm = new EditorGUILayout.HorizontalScope())
-            {
-                EditorGUILayout.LabelField("Namespace", GUILayout.Width(70));
-                headerInfo.nameSpace = EditorGUILayout.TextField(headerInfo.nameSpace, GUILayout.Width(60));
-                EditorGUILayout.LabelField("Type", GUILayout.Width(40));
-                headerInfo.scriptName = EditorGUILayout.TextField(headerInfo.scriptName, GUILayout.Width(60));
-                EditorGUILayout.LabelField("简介", GUILayout.Width(40));
-                headerInfo.description = EditorGUILayout.TextField(headerInfo.description);
-
-                if (GUILayout.Button("Load", EditorStyles.miniButtonRight, GUILayout.Width(60)))
-                {
-                    OnLoadButtonClicked();
-                }
-            }
-            using (var hor = new EditorGUILayout.HorizontalScope())
-            {
-                using (var vertical = new EditorGUILayout.VerticalScope())
-                {
-                    detailList.DoLayoutList();
-                }
-                using (var vertical = new EditorGUILayout.VerticalScope(GUILayout.Width(60)))
-                {
-                    if (GUILayout.Button("Create", EditorStyles.miniButtonRight, GUILayout.Height(60)))
-                    {
-                        OnCreateButtonClicked();
-                    }
-                    if (GUILayout.Button("Clear", EditorStyles.miniButtonRight))
-                    {
-                        headerInfo = null;
-                        templates.Clear();
-                    }
-                }
-            }
-        }
-        /// <summary>
-        /// 点击创建
-        /// </summary>
-        private void OnCreateButtonClicked()
-        {
-            headerInfo.author = authorName;
-            headerInfo.time = System.DateTime.Now.ToString("yyyy-MM-dd hh:mm:ss");
-            var scriptStr = templates[currentIndex].Create(headerInfo);
-            if (string.IsNullOrEmpty(scriptStr))
-            {
-                EditorUtility.DisplayDialog("生成失败", "请看日志！", "确认");
-                return;
-            }
-
-            if (string.IsNullOrEmpty(headerInfo.scriptName))
-            {
-                EditorUtility.DisplayDialog("脚本名为空", "请填写代码名称！", "确认");
-                return;
-            }
 
 
-            if (string.IsNullOrEmpty(path))
-            {
-                if (ProjectWindowUtil.IsFolder(Selection.activeInstanceID))
-                {
-                    path = AssetDatabase.GetAssetPath(Selection.activeInstanceID);
-                }
-                else if (Selection.activeObject != null)
-                {
-                    var assetPath = AssetDatabase.GetAssetPath(Selection.activeObject);
-                    if (!string.IsNullOrEmpty(assetPath))
-                    {
-                        path = assetPath.Replace(System.IO.Path.GetFileName(assetPath), "");
-                    }
-                }
-            }
-
-
-            if (!string.IsNullOrEmpty(path))
-            {
-                var scriptPath = string.Format("{0}/{1}.cs", path, headerInfo.scriptName);
-                System.IO.File.WriteAllText(scriptPath, scriptStr, System.Text.Encoding.UTF8);
-                AssetDatabase.Refresh();
-            }
-            else
-            {
-                EditorUtility.DisplayDialog("路径不明", "请选中文件夹后重试", "确认");
-            }
-        }
-
-        /// <summary>
-        /// 点击加载代码
-        /// </summary>
-        private void OnLoadButtonClicked()
-        {
-            if (!(Selection.activeObject is TextAsset))
-            {
-                EditorUtility.DisplayDialog("未选中", "请选中需要解析的代码后继续", "确认");
-                return;
-            }
-
-            var path = AssetDatabase.GetAssetPath(Selection.activeObject);
-            if (!path.EndsWith(".cs"))
-            {
-                EditorUtility.DisplayDialog("未选中", "请选中需要解析的代码后继续", "确认");
-                return;
-            }
-
-            using (var provider = System.CodeDom.Compiler.CodeDomProvider.CreateProvider("CSharp"))
-            {
-                EditorUtility.DisplayDialog("未开发", ".net 3.5暂无该实现", "确认");
-
-                var fileContent = System.IO.File.ReadAllText(path, Encoding.UTF8);
-                using (StringReader sr = new StringReader(fileContent))
-                {
-                    var nameSpaceUnit = provider.Parse(sr);
-                    Debug.Log(nameSpaceUnit);
-                }
-            }
-        }
     }
     #endregion
 
@@ -423,22 +305,86 @@ namespace EditorTools
     {
         public string json;
         public string type;
+        public TempScriptHeader headerInfo = new TempScriptHeader();
+        public string path;
         public virtual string Name { get { return null; } }
-        public virtual string Create(TempScriptHeader header) { return GetHeader(header); }
-        public virtual void OnGUI() { }
+        private ReorderableList detailList;
+
+        public virtual void OnBodyGUI() { }
+        public virtual void OnFootGUI()
+        {
+            if (detailList == null)
+            {
+                InitDetailList();
+            }
+
+            if (detailList.list != headerInfo.detailInfo)
+            {
+                detailList.list = headerInfo.detailInfo;
+            }
+
+            using (var horm = new EditorGUILayout.HorizontalScope())
+            {
+                EditorGUILayout.LabelField("Namespace", GUILayout.Width(70));
+                headerInfo.nameSpace = EditorGUILayout.TextField(headerInfo.nameSpace, GUILayout.Width(60));
+                EditorGUILayout.LabelField("Type", GUILayout.Width(40));
+                headerInfo.scriptName = EditorGUILayout.TextField(headerInfo.scriptName, GUILayout.Width(60));
+                EditorGUILayout.LabelField("简介", GUILayout.Width(40));
+                headerInfo.description = EditorGUILayout.TextField(headerInfo.description);
+
+                if (GUILayout.Button("Load", EditorStyles.miniButtonRight, GUILayout.Width(60)))
+                {
+                    OnLoadButtonClicked();
+                }
+            }
+            using (var hor = new EditorGUILayout.HorizontalScope())
+            {
+                using (var vertical = new EditorGUILayout.VerticalScope())
+                {
+                    detailList.DoLayoutList();
+                }
+                using (var vertical = new EditorGUILayout.VerticalScope(GUILayout.Width(60)))
+                {
+                    if (GUILayout.Button("Create", EditorStyles.miniButtonRight, GUILayout.Height(60)))
+                    {
+                        OnCreateButtonClicked();
+                    }
+                }
+            }
+        }
 
         public void OnEnable()
         {
             type = this.GetType().FullName;
             Debug.Log(type);
         }
-        internal void SaveToJson()
+        public string Create()
+        {
+            var ns = CreateNameSpace();
+            if (ns == null) return null;
+            var nsstr = ComplieNameSpaceToString(ns);
+            if (string.IsNullOrEmpty(nsstr)) return null;
+            return GetHeader() + nsstr;
+
+        }
+        public void SaveToJson()
         {
             json = null;
             json = JsonUtility.ToJson(this);
             type = this.GetType().FullName;
         }
-        protected string GetHeader(TempScriptHeader header)
+        protected void InitDetailList()
+        {
+            detailList = new ReorderableList(headerInfo.detailInfo, typeof(string), true, false, true, true);
+            detailList.onAddCallback += (x) => { headerInfo.detailInfo.Add(""); };
+            detailList.drawHeaderCallback = (x) => { EditorGUI.LabelField(x, "详细信息"); };
+            detailList.drawElementCallback += (x, y, z, w) => { headerInfo.detailInfo[y] = EditorGUI.TextField(x, headerInfo.detailInfo[y]); };
+        }
+        protected virtual CodeNamespace CreateNameSpace()
+        {
+            return null;
+        }
+        protected string GetHeader()
         {
             var str1 = "#region statement\r\n" +
             "/*************************************************************************************   \r\n" +
@@ -449,24 +395,22 @@ namespace EditorTools
             var str3 = "\r\n* ************************************************************************************/" +
             "\r\n#endregion\r\n";
 
-            var headerStr = string.Format(str1, header.author, header.time);
-            for (int i = 0; i < header.detailInfo.Count; i++)
+            var headerStr = string.Format(str1, headerInfo.author, headerInfo.time);
+            for (int i = 0; i < headerInfo.detailInfo.Count; i++)
             {
                 if (i == 0)
                 {
-                    headerStr += string.Format("{0}.{1}", i + 1, header.detailInfo[i]);
+                    headerStr += string.Format("{0}.{1}", i + 1, headerInfo.detailInfo[i]);
                 }
                 else
                 {
-                    headerStr += string.Format("{0}{1}.{2}", str2, i + 1, header.detailInfo[i]);
+                    headerStr += string.Format("{0}{1}.{2}", str2, i + 1, headerInfo.detailInfo[i]);
                 }
             }
             headerStr += str3;
             return headerStr;
         }
-
-
-        protected string ComplieToString(CodeNamespace nameSpace)
+        protected string ComplieNameSpaceToString(CodeNamespace nameSpace)
         {
             using (Microsoft.CSharp.CSharpCodeProvider cprovider = new Microsoft.CSharp.CSharpCodeProvider())
             {
@@ -478,6 +422,87 @@ namespace EditorTools
                     cprovider.GenerateCodeFromNamespace(nameSpace, sw, option);
                 }
                 return fileContent.ToString();
+            }
+        }
+
+        /// <summary>
+        /// 点击创建
+        /// </summary>
+        private void OnCreateButtonClicked()
+        {
+            headerInfo.author = TempScriptHelper.GetAuthor();
+            headerInfo.time = System.DateTime.Now.ToString("yyyy-MM-dd hh:mm:ss");
+            var scriptStr = Create();
+            if (string.IsNullOrEmpty(scriptStr))
+            {
+                EditorUtility.DisplayDialog("生成失败", "请看日志！", "确认");
+                return;
+            }
+
+            if (string.IsNullOrEmpty(headerInfo.scriptName))
+            {
+                EditorUtility.DisplayDialog("脚本名为空", "请填写代码名称！", "确认");
+                return;
+            }
+
+
+            if (string.IsNullOrEmpty(path))
+            {
+                if (ProjectWindowUtil.IsFolder(Selection.activeInstanceID))
+                {
+                    path = AssetDatabase.GetAssetPath(Selection.activeInstanceID);
+                }
+                else if (Selection.activeObject != null)
+                {
+                    var assetPath = AssetDatabase.GetAssetPath(Selection.activeObject);
+                    if (!string.IsNullOrEmpty(assetPath))
+                    {
+                        path = assetPath.Replace(System.IO.Path.GetFileName(assetPath), "");
+                    }
+                }
+            }
+
+
+            if (!string.IsNullOrEmpty(path))
+            {
+                var scriptPath = string.Format("{0}/{1}.cs", path, headerInfo.scriptName);
+                System.IO.File.WriteAllText(scriptPath, scriptStr, System.Text.Encoding.UTF8);
+                AssetDatabase.Refresh();
+            }
+            else
+            {
+                EditorUtility.DisplayDialog("路径不明", "请选中文件夹后重试", "确认");
+            }
+        }
+
+        /// <summary>
+        /// 点击加载代码
+        /// </summary>
+        private void OnLoadButtonClicked()
+        {
+            if (!(Selection.activeObject is TextAsset))
+            {
+                EditorUtility.DisplayDialog("未选中", "请选中需要解析的代码后继续", "确认");
+                return;
+            }
+
+            var path = AssetDatabase.GetAssetPath(Selection.activeObject);
+            if (!path.EndsWith(".cs"))
+            {
+                EditorUtility.DisplayDialog("未选中", "请选中需要解析的代码后继续", "确认");
+                return;
+            }
+
+            using (var provider = System.CodeDom.Compiler.CodeDomProvider.CreateProvider("CSharp"))
+            {
+                EditorUtility.DisplayDialog("未开发", ".net 3.5暂无该实现", "确认");
+
+                var fileContent = System.IO.File.ReadAllText(path, Encoding.UTF8);
+                using (StringReader sr = new StringReader(fileContent))
+                {
+                    var nameSpaceUnit = provider.Parse(sr);
+                    Debug.Log(nameSpaceUnit);
+                }
             }
         }
     }
@@ -528,7 +553,7 @@ namespace EditorTools
             EditorGUI.LabelField(center, "Comment");
             tupe.comment = EditorGUI.TextField(right, tupe.comment);
         }
-        public override string Create(TempScriptHeader header)
+        protected override CodeNamespace CreateNameSpace()
         {
             List<CodeMemberField> fields = new List<CodeMemberField>();
             foreach (var item in elements)
@@ -539,26 +564,25 @@ namespace EditorTools
                 fields.Add(prop);
             }
 
-            CodeTypeDeclaration wrapProxyClass = new CodeTypeDeclaration(header.scriptName);
+            CodeTypeDeclaration wrapProxyClass = new CodeTypeDeclaration(headerInfo.scriptName);
             wrapProxyClass.TypeAttributes = System.Reflection.TypeAttributes.Public;
             wrapProxyClass.IsEnum = true;
 
             wrapProxyClass.Comments.Add(new CodeCommentStatement("<summary>", true));
-            wrapProxyClass.Comments.Add(new CodeCommentStatement(header.description, true));
+            wrapProxyClass.Comments.Add(new CodeCommentStatement(headerInfo.description, true));
             wrapProxyClass.Comments.Add(new CodeCommentStatement("<summary>", true));
             foreach (var field in fields)
             {
                 wrapProxyClass.Members.Add(field);
             }
 
-            CodeNamespace nameSpace = new CodeNamespace(header.nameSpace);
+            CodeNamespace nameSpace = new CodeNamespace(headerInfo.nameSpace);
             nameSpace.Types.Add(wrapProxyClass);
-            var headerStr = base.Create(header);
-            return headerStr + ComplieToString(nameSpace);
+            return nameSpace;
         }
 
 
-        public override void OnGUI()
+        public override void OnBodyGUI()
         {
             reorderableList.DoLayoutList();
         }
@@ -598,36 +622,35 @@ namespace EditorTools
                 DrawDataItem(x, elements[y]);
             };
         }
-        public override string Create(TempScriptHeader header)
+        protected override CodeNamespace CreateNameSpace()
         {
             List<CodeMemberField> fields = new List<CodeMemberField>();
             foreach (var item in elements)
             {
                 CodeMemberField prop = new CodeMemberField();
-                prop.Type = new CodeTypeReference(item.type,CodeTypeReferenceOptions.GenericTypeParameter);
+                prop.Type = new CodeTypeReference(item.type, CodeTypeReferenceOptions.GenericTypeParameter);
                 prop.Attributes = MemberAttributes.Public;
                 prop.Name = item.elementName;
                 prop.Comments.Add(new CodeCommentStatement(item.comment));
                 fields.Add(prop);
             }
 
-            CodeTypeDeclaration wrapProxyClass = new CodeTypeDeclaration(header.scriptName);
+            CodeTypeDeclaration wrapProxyClass = new CodeTypeDeclaration(headerInfo.scriptName);
             wrapProxyClass.TypeAttributes = System.Reflection.TypeAttributes.Public;
             wrapProxyClass.CustomAttributes.Add(new CodeAttributeDeclaration(typeof(System.SerializableAttribute).FullName));
             wrapProxyClass.IsClass = true;
 
             wrapProxyClass.Comments.Add(new CodeCommentStatement("<summary>", true));
-            wrapProxyClass.Comments.Add(new CodeCommentStatement(header.description, true));
+            wrapProxyClass.Comments.Add(new CodeCommentStatement(headerInfo.description, true));
             wrapProxyClass.Comments.Add(new CodeCommentStatement("<summary>", true));
             foreach (var field in fields)
             {
                 wrapProxyClass.Members.Add(field);
             }
 
-            CodeNamespace nameSpace = new CodeNamespace(header.nameSpace);
+            CodeNamespace nameSpace = new CodeNamespace(headerInfo.nameSpace);
             nameSpace.Types.Add(wrapProxyClass);
-            var headerStr = base.Create(header);
-            return headerStr + ComplieToString(nameSpace);
+            return nameSpace;
         }
 
         private void DrawDataItem(Rect rect, DataItem dataItem)
@@ -641,7 +664,7 @@ namespace EditorTools
             dataItem.comment = EditorGUI.TextField(rect03, dataItem.comment);
         }
 
-        public override void OnGUI()
+        public override void OnBodyGUI()
         {
             reorderableList.DoLayoutList();
         }
@@ -665,12 +688,12 @@ namespace EditorTools
 
         }
 
-        public override string Create(TempScriptHeader header)
+        protected override CodeNamespace CreateNameSpace()
         {
-            return "";
+            return null;
         }
 
-        public override void OnGUI()
+        public override void OnBodyGUI()
         {
 
         }
@@ -690,12 +713,12 @@ namespace EditorTools
             }
         }
 
-        public override string Create(TempScriptHeader header)
+        protected override CodeNamespace CreateNameSpace()
         {
-            return "";
+            return null;
         }
 
-        public override void OnGUI()
+        public override void OnBodyGUI()
         {
 
         }
@@ -715,12 +738,12 @@ namespace EditorTools
             }
         }
 
-        public override string Create(TempScriptHeader header)
+        protected override CodeNamespace CreateNameSpace()
         {
-            return "";
+            return null;
         }
 
-        public override void OnGUI()
+        public override void OnBodyGUI()
         {
 
         }
@@ -740,12 +763,12 @@ namespace EditorTools
             }
         }
 
-        public override string Create(TempScriptHeader header)
+        protected override CodeNamespace CreateNameSpace()
         {
-            return "";
+            return null;
         }
 
-        public override void OnGUI()
+        public override void OnBodyGUI()
         {
 
         }
