@@ -49,8 +49,10 @@ namespace EditorTools
         [SerializeField]
         private int currentIndex;
         private Vector2 scrollPos;
-        private Dictionary<string, Type> templateDic = new Dictionary<string, Type>();
-
+        [SerializeField]
+        private Type[] templateType;
+        private bool showRule;
+        private string codeRule;
         private void OnEnable()
         {
             InitEnviroment();
@@ -107,10 +109,9 @@ namespace EditorTools
 
                         if (currentTemplates.GetType().FullName == typeof(ScriptTemplate).FullName)
                         {
-                            var key = templateNames[currentIndex];
-                            if(templateDic.ContainsKey(key))
+                            if(templateType!= null && templateType.Length > currentIndex)
                             {
-                                templates[currentIndex] = Activator.CreateInstance(templateDic[key]) as ScriptTemplate;
+                                templates[currentIndex] = Activator.CreateInstance(templateType[currentIndex]) as ScriptTemplate;
                                 Debug.Log("create new:" + currentTemplates.GetType());
                             }
                             else
@@ -139,6 +140,8 @@ namespace EditorTools
         private void InitEnviroment()
         {
             if (script == null) script = MonoScript.FromScriptableObject(this);
+            showRule = TempScriptHelper.GetRuleShowState();
+            if(string.IsNullOrEmpty(codeRule)) codeRule = TempScriptHelper.GetCodeRule();
             if (string.IsNullOrEmpty(authorName)) authorName = TempScriptHelper.GetAuthor();
             if (string.IsNullOrEmpty(authorName))
             {
@@ -154,14 +157,11 @@ namespace EditorTools
             templates.Add(new ExtendClassTemplate());
             templates.Add(new StructTempate());
             templates.Add(new UIPanelTempate());
-
-            foreach (var item in templates)
-            {
-                //不能再父级的构造器中与获取type的方法
-                templateDic.Add(item.Name, item.GetType());
+            foreach (var item in templates) {
                 item.OnEnable();
             }
             templateNames = templates.ConvertAll<string>(x => x.Name).ToArray();
+            templateType = templates.ConvertAll<Type>(x => x.GetType()).ToArray();
         }
 
         public void LoadOldTemplates()
@@ -200,7 +200,7 @@ namespace EditorTools
                 }
             }
 
-            if (GUILayout.Button("Clear", EditorStyles.toolbarButton))
+            if (!isSetting &&  GUILayout.Button("Clear", EditorStyles.toolbarButton))
             {
                 currentTemplates.headerInfo = null;
                 templates.Clear();
@@ -220,6 +220,21 @@ namespace EditorTools
                     {
                         TempScriptHelper.SaveAuthor(authorName);
                     }
+                }
+            }
+            EditorGUI.BeginChangeCheck();
+            showRule = EditorGUILayout.ToggleLeft("在生成的代码末尾显示规范:（熟悉后可关闭此功能）", showRule);
+            if(EditorGUI.EndChangeCheck())
+            {
+                TempScriptHelper.SetRuleShowState(showRule);
+            }
+
+            if (showRule)
+            {
+                using (var scrop = new EditorGUILayout.ScrollViewScope(scrollPos))
+                {
+                    scrollPos = scrop.scrollPosition;
+                    EditorGUILayout.TextArea(codeRule);
                 }
             }
         }
@@ -251,7 +266,7 @@ namespace EditorTools
     {
         private const string prefer_key = "temp_script_autor_name";
         private const string prefer_window = "temp_script_window";
-
+        private const string code_rule_show = "temp_script_code_rule_show";
         public static void SaveAuthor(string author)
         {
             EditorPrefs.SetString(prefer_key, author);
@@ -292,6 +307,39 @@ namespace EditorTools
                 old.type = old.GetType().FullName;
                 return old;
             }
+        }
+
+        internal static void SetRuleShowState(bool enabled)
+        {
+            PlayerPrefs.SetInt(code_rule_show, enabled ? 1 : 0);
+        }
+        internal static bool GetRuleShowState()
+        {
+            if(PlayerPrefs.HasKey(code_rule_show)){
+                return PlayerPrefs.GetInt(code_rule_show) == 1;
+            }
+            return true;
+        }
+        /*
+         1.私有字段：_field,m_field
+         2.公有字段：field
+         2.属性：Property
+         3.常量：CONST
+         4.静态变量：Field,Property
+             */
+        internal static string GetCodeRule()
+        {
+            return @"#region 代码规范
+/*************************************************************************************
+        【变量命名】：
+         1.私有字段：_field,m_field
+         2.公有字段：field
+         2.属性：Property
+         3.常量：CONST
+         4.静态变量：Field,Property
+**************************************************************************************/
+#endregion
+";
         }
     }
     #endregion
@@ -364,7 +412,7 @@ namespace EditorTools
             if (ns == null) return null;
             var nsstr = ComplieNameSpaceToString(ns);
             if (string.IsNullOrEmpty(nsstr)) return null;
-            return GetHeader() + nsstr;
+            return GetHeader() + nsstr + GetFooter();
 
         }
         public void SaveToJson()
@@ -424,7 +472,15 @@ namespace EditorTools
                 return fileContent.ToString();
             }
         }
-
+        protected string GetFooter()
+        {
+            if(TempScriptHelper.GetRuleShowState())
+            {
+                var rule = TempScriptHelper.GetCodeRule();
+                return rule;
+            }
+            return null;
+        }
         /// <summary>
         /// 点击创建
         /// </summary>
@@ -610,6 +666,16 @@ namespace EditorTools
         }
         [SerializeField]
         private List<DataItem> elements = new List<DataItem>();
+
+        [SerializeField]
+        private List<string> imports = new List<string>() {
+            "System",
+            "UnityEngine",
+            "UnityEngine.UI",
+            "System.Collections",
+            "System.Collections.Generic",
+        };
+        private ReorderableList nameSpaceList;
         private ReorderableList reorderableList;
 
         public DataModelTemplate()
@@ -620,6 +686,14 @@ namespace EditorTools
             reorderableList.drawElementCallback += (x, y, z, w) =>
             {
                 DrawDataItem(x, elements[y]);
+            };
+
+            nameSpaceList = new ReorderableList(imports, typeof(string));
+            nameSpaceList.onAddCallback += (x) => { imports.Add(""); };
+            nameSpaceList.drawHeaderCallback += (x) => { EditorGUI.LabelField(x, "命名空间"); };
+            nameSpaceList.drawElementCallback += (x, y, z, w) =>
+            {
+                imports[y] =  DrawNameSpace(x, imports[y]);
             };
         }
         protected override CodeNamespace CreateNameSpace()
@@ -647,9 +721,9 @@ namespace EditorTools
             {
                 wrapProxyClass.Members.Add(field);
             }
-
             CodeNamespace nameSpace = new CodeNamespace(headerInfo.nameSpace);
             nameSpace.Types.Add(wrapProxyClass);
+            nameSpace.Imports.AddRange(imports.ConvertAll<CodeNamespaceImport>(x => new CodeNamespaceImport(x)).ToArray());
             return nameSpace;
         }
 
@@ -664,8 +738,15 @@ namespace EditorTools
             dataItem.comment = EditorGUI.TextField(rect03, dataItem.comment);
         }
 
+        private string DrawNameSpace(Rect rect, string dataItem)
+        {
+            var rect1 = new Rect(rect.x, rect. y, rect.width, EditorGUIUtility.singleLineHeight);
+           return EditorGUI.TextField(rect1, dataItem);
+        }
+
         public override void OnBodyGUI()
         {
+            nameSpaceList.DoLayoutList();
             reorderableList.DoLayoutList();
         }
     }
