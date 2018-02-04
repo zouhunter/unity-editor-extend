@@ -112,8 +112,18 @@ namespace EditorTools
                         {
                             if (templateType.Length > currentIndex)
                             {
-                                templates[currentIndex] = Activator.CreateInstance(Type.GetType(templateType[currentIndex])) as ScriptTemplate;
-                                Debug.Log("create new:" + currentTemplates.GetType());
+                                var type = Type.GetType(templateType[currentIndex]);
+                                if(type != null)
+                                {
+                                    templates[currentIndex] = Activator.CreateInstance(type) as ScriptTemplate;
+                                    Debug.Log("create new:" + currentTemplates.GetType());
+                                }
+                                else
+                                {
+                                    Debug.LogFormat("{0} missing: clear templates", currentTemplates.GetType().FullName);
+                                    templates.Clear();
+                                }
+                              
                             }
                             else
                             {
@@ -211,7 +221,8 @@ namespace EditorTools
 
             if (!isSetting && GUILayout.Button("Clear", EditorStyles.toolbarButton))
             {
-                currentTemplates.headerInfo = null;
+                if (currentTemplates != null)
+                    currentTemplates.headerInfo = new TempScriptHeader() ;
                 templates.Clear();
             }
         }
@@ -313,9 +324,17 @@ namespace EditorTools
         {
             if (!string.IsNullOrEmpty(old.type) && old.GetType().FullName != old.type)
             {
-                var temp = Activator.CreateInstance(Type.GetType(old.type));
-                JsonUtility.FromJsonOverwrite(old.json, temp);
-                return temp as ScriptTemplate;
+                var type = Type.GetType(old.type);
+                if(type != null)
+                {
+                    var temp = Activator.CreateInstance(type);
+                    JsonUtility.FromJsonOverwrite(old.json, temp);
+                    return temp as ScriptTemplate;
+                }
+                else
+                {
+                    return old;
+                }
             }
             else
             {
@@ -986,30 +1005,6 @@ namespace EditorTools
     }
 
     #endregion
-    /// <summary>
-    /// 4.继承其他类的子类
-    /// </summary>
-    [Serializable]
-    public class ExtendClassTemplate : ScriptTemplate
-    {
-        public override string Name
-        {
-            get
-            {
-                return "Extend";
-            }
-        }
-
-        protected override CodeNamespace CreateNameSpace()
-        {
-            return null;
-        }
-
-        public override void OnBodyGUI()
-        {
-
-        }
-    }
 
     #region Struct
     /// <summary>
@@ -1106,6 +1101,7 @@ namespace EditorTools
     }
     #endregion
 
+    #region Interface
     /// <summary>
     /// 6.接口创建模板
     /// </summary>
@@ -1199,31 +1195,34 @@ namespace EditorTools
             reorderableList.DoLayoutList();
         }
     }
-    /// <summary>
-    /// UI模板
-    /// </summary>
-    [Serializable]
-    public class UIPanelTempate : ScriptTemplate
-    {
-        public override string Name
-        {
-            get
-            {
-                return "UIPanel";
-            }
-        }
+    #endregion
 
-        protected override CodeNamespace CreateNameSpace()
-        {
-            return null;
-        }
-
-        public override void OnBodyGUI()
-        {
-
-        }
-    }
 
     ///下面可以自定义你的代码生成模板,并在窗体方法RegistTempates中注册
     ///...
+    /// <summary>
+    /// UI模板
+    /// </summary>
+    //[Serializable]
+    //public class UIPanelTempate : ScriptTemplate
+    //{
+    //    public override string Name
+    //    {
+    //        get
+    //        {
+    //            return "UIPanel";
+    //        }
+    //    }
+
+    //    protected override CodeNamespace CreateNameSpace()
+    //    {
+    //        return null;
+    //    }
+
+    //    public override void OnBodyGUI()
+    //    {
+
+    //    }
+    //}
+
 }
