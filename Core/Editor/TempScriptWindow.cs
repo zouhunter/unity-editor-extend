@@ -35,8 +35,8 @@ namespace EditorTools
             var window = TempScriptHelper.GetWindow();
             window.wantsMouseMove = true;
         }
-      
-      
+
+
         [SerializeField]
         private List<ScriptTemplate> templates;
         ScriptTemplate currentTemplates { get { if (templates != null && templates.Count > currentIndex) return templates[currentIndex]; return null; } }
@@ -112,7 +112,7 @@ namespace EditorTools
                         {
                             if (templateType.Length > currentIndex)
                             {
-                                templates[currentIndex] = Activator.CreateInstance(Type.GetType( templateType[currentIndex])) as ScriptTemplate;
+                                templates[currentIndex] = Activator.CreateInstance(Type.GetType(templateType[currentIndex])) as ScriptTemplate;
                                 Debug.Log("create new:" + currentTemplates.GetType());
                             }
                             else
@@ -162,7 +162,7 @@ namespace EditorTools
                     templates.Add(template as ScriptTemplate);
                 }
             }
-          
+
             foreach (var item in templates)
             {
                 item.OnEnable();
@@ -489,7 +489,10 @@ namespace EditorTools
         {
             json = null;
             json = JsonUtility.ToJson(this);
-            type = this.GetType().FullName;
+            if (string.IsNullOrEmpty(type))
+            {
+                type = this.GetType().FullName;
+            }
         }
         protected void InitDetailList()
         {
@@ -499,7 +502,7 @@ namespace EditorTools
             detailList.drawElementCallback += (x, y, z, w) => { headerInfo.detailInfo[y] = EditorGUI.TextField(x, headerInfo.detailInfo[y]); };
         }
 
-        protected void DrawFieldItem(Rect rect, FieldItem dataItem,bool haveType)
+        protected void DrawFieldItem(Rect rect, FieldItem dataItem, bool haveType)
         {
             if (haveType)
             {
@@ -524,7 +527,7 @@ namespace EditorTools
                 EditorGUI.LabelField(center, "Comment");
                 dataItem.comment = EditorGUI.TextField(right, dataItem.comment);
             }
-           
+
         }
         protected void DrawPropertyItem(Rect rect, PropertyItem propertyItem)
         {
@@ -694,7 +697,7 @@ namespace EditorTools
     }
     #endregion
 
-
+    #region Enum
     /// <summary>
     /// 1.枚举类型脚本
     /// </summary>
@@ -724,7 +727,7 @@ namespace EditorTools
             reorderableList.drawHeaderCallback += (x) => { EditorGUI.LabelField(x, "枚举列表"); };
             reorderableList.drawElementCallback += (x, y, z, w) =>
             {
-                DrawFieldItem(x, fields[y],false);
+                DrawFieldItem(x, fields[y], false);
             };
         }
 
@@ -760,7 +763,9 @@ namespace EditorTools
             reorderableList.DoLayoutList();
         }
     }
+    #endregion
 
+    #region DataModel
     /// <summary>
     /// 2.数据模拟类
     /// </summary>
@@ -798,7 +803,7 @@ namespace EditorTools
             reorderableList.drawHeaderCallback += (x) => { EditorGUI.LabelField(x, "模型名"); };
             reorderableList.drawElementCallback += (x, y, z, w) =>
             {
-                DrawFieldItem(x, fields[y],true);
+                DrawFieldItem(x, fields[y], true);
             };
 
             nameSpaceList = new ReorderableList(imports, typeof(string));
@@ -841,7 +846,7 @@ namespace EditorTools
             return nameSpace;
         }
 
-     
+
         private string DrawNameSpace(Rect rect, string dataItem)
         {
             var rect1 = new Rect(rect.x, rect.y, rect.width, EditorGUIUtility.singleLineHeight);
@@ -854,13 +859,20 @@ namespace EditorTools
             reorderableList.DoLayoutList();
         }
     }
+    #endregion
 
+    #region Static
     /// <summary>
     /// 3.静态类
     /// </summary>
     [Serializable]
     public class StaticClassTemplate : ScriptTemplate
     {
+        [MenuItem("Assets/Create/TempScript C#/Static", priority = 5)]
+        static void CreateModel()
+        {
+            TempScriptHelper.QuickCreateTemplate<StaticClassTemplate>();
+        }
         public override string Name
         {
             get
@@ -868,22 +880,112 @@ namespace EditorTools
                 return "Static";
             }
         }
+
+        [SerializeField]
+        private List<string> imports = new List<string>() {
+            "System",
+            "UnityEngine"
+        };
+        private ReorderableList nameSpaceList;
+        private ReorderableList propertyList;
+        private ReorderableList fieldList;
+
         public StaticClassTemplate()
         {
+            fieldList = new ReorderableList(fields, typeof(string));
+            fieldList.onAddCallback += (x) => { fields.Add(new FieldItem()); };
+            fieldList.drawHeaderCallback += (x) => { EditorGUI.LabelField(x, "字段"); };
+            fieldList.drawElementCallback += (x, y, z, w) =>
+            {
+                DrawFieldItem(x, fields[y], true);
+            };
 
+            propertyList = new ReorderableList(propertys, typeof(string));
+            propertyList.onAddCallback += (x) => { propertys.Add(new PropertyItem()); };
+            propertyList.drawHeaderCallback += (x) => { EditorGUI.LabelField(x, "属性"); };
+            propertyList.elementHeightCallback = (x) => { return 2 * EditorGUIUtility.singleLineHeight; };
+            propertyList.drawElementCallback += (x, y, z, w) =>
+            {
+                DrawPropertyItem(x, propertys[y]);
+            };
+
+            nameSpaceList = new ReorderableList(imports, typeof(string));
+            nameSpaceList.onAddCallback += (x) => { imports.Add(""); };
+            nameSpaceList.drawHeaderCallback += (x) => { EditorGUI.LabelField(x, "命名空间"); };
+            nameSpaceList.drawElementCallback += (x, y, z, w) =>
+            {
+                imports[y] = DrawNameSpace(x, imports[y]);
+            };
         }
+
 
         protected override CodeNamespace CreateNameSpace()
         {
-            return null;
+            List<CodeMemberField> codeFields = new List<CodeMemberField>();
+            foreach (var item in fields)
+            {
+                CodeMemberField field = new CodeMemberField();
+                field.Type = new CodeTypeReference(item.type, CodeTypeReferenceOptions.GenericTypeParameter);
+                field.Attributes = MemberAttributes.Public | MemberAttributes.Static;
+                field.Name = item.elementName;
+                //field.InitExpression = invokeExpression;
+                field.Comments.Add(new CodeCommentStatement(item.comment));
+                codeFields.Add(field);
+            }
+
+
+            List<CodeMemberProperty> propertysMemper = new List<CodeMemberProperty>();
+            foreach (var item in propertys)
+            {
+                CodeMemberProperty prop = new CodeMemberProperty();
+                prop.Type = new CodeTypeReference(item.type, CodeTypeReferenceOptions.GenericTypeParameter);
+                prop.Attributes = MemberAttributes.Public|MemberAttributes.Static;
+                prop.Name = item.elementName;
+                prop.HasGet = item.get;
+                prop.HasSet = item.set;
+                CodeExpression invokeExpression = new CodePropertyReferenceExpression();
+                prop.GetStatements.Add(new CodeMethodReturnStatement(new CodePrimitiveExpression(null)));
+                prop.Comments.Add(new CodeCommentStatement(item.comment));
+                propertysMemper.Add(prop);
+            }
+
+            CodeTypeDeclaration wrapProxyClass = new CodeTypeDeclaration(headerInfo.scriptName);
+            wrapProxyClass.TypeAttributes = System.Reflection.TypeAttributes.Public;//没有静态？
+            wrapProxyClass.Attributes = MemberAttributes.Static;
+            wrapProxyClass.IsClass = true;
+            var destription = string.IsNullOrEmpty(headerInfo.description) ? "静态类" : headerInfo.description;
+            wrapProxyClass.Comments.Add(new CodeCommentStatement("<summary>", true));
+            wrapProxyClass.Comments.Add(new CodeCommentStatement(destription, true));
+            wrapProxyClass.Comments.Add(new CodeCommentStatement("<summary>", true));
+            foreach (var prop in propertysMemper)
+            {
+                wrapProxyClass.Members.Add(prop);
+            }
+            foreach (var field in codeFields)
+            {
+                wrapProxyClass.Members.Add(field);
+            }
+            CodeNamespace nameSpace = new CodeNamespace(headerInfo.nameSpace);
+            nameSpace.Types.Add(wrapProxyClass);
+            nameSpace.Imports.AddRange(imports.ConvertAll<CodeNamespaceImport>(x => new CodeNamespaceImport(x)).ToArray());
+            return nameSpace;
+        }
+
+        private string DrawNameSpace(Rect rect, string dataItem)
+        {
+            var rect1 = new Rect(rect.x, rect.y, rect.width, EditorGUIUtility.singleLineHeight);
+            return EditorGUI.TextField(rect1, dataItem);
         }
 
         public override void OnBodyGUI()
         {
-
+            nameSpaceList.DoLayoutList();
+            fieldList.DoLayoutList();
+            propertyList.DoLayoutList();
         }
     }
 
+    #endregion
     /// <summary>
     /// 4.继承其他类的子类
     /// </summary>
@@ -909,6 +1011,7 @@ namespace EditorTools
         }
     }
 
+    #region Struct
     /// <summary>
     /// 5.结构体模板
     /// </summary>
@@ -928,7 +1031,7 @@ namespace EditorTools
                 return "Struct";
             }
         }
-        
+
         [SerializeField]
         private List<string> imports = new List<string>() {
             "System",
@@ -947,7 +1050,7 @@ namespace EditorTools
             reorderableList.drawHeaderCallback += (x) => { EditorGUI.LabelField(x, "模型名"); };
             reorderableList.drawElementCallback += (x, y, z, w) =>
             {
-                DrawFieldItem(x, fields[y],true);
+                DrawFieldItem(x, fields[y], true);
             };
 
             nameSpaceList = new ReorderableList(imports, typeof(string));
@@ -1001,6 +1104,7 @@ namespace EditorTools
             reorderableList.DoLayoutList();
         }
     }
+    #endregion
 
     /// <summary>
     /// 6.接口创建模板
@@ -1050,7 +1154,7 @@ namespace EditorTools
             };
         }
 
-      
+
         protected override CodeNamespace CreateNameSpace()
         {
             List<CodeMemberProperty> propertysMemper = new List<CodeMemberProperty>();
