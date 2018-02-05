@@ -38,7 +38,7 @@ namespace EditorTools
 
 
         [SerializeField]
-        private List<ScriptTemplate> templates;
+        public List<ScriptTemplate> templates;
         ScriptTemplate currentTemplates { get { if (templates != null && templates.Count > currentIndex) return templates[currentIndex]; return null; } }
         private MonoScript script;
         [SerializeField]
@@ -65,13 +65,13 @@ namespace EditorTools
             {
                 foreach (var item in templates)
                 {
-
                     item.SaveToJson();
                 }
             }
             EditorUtility.SetDirty(this);
             TempScriptHelper.SaveWindow(this);
         }
+
         private void OnGUI()
         {
             DrawHead();
@@ -113,7 +113,7 @@ namespace EditorTools
                             if (templateType.Length > currentIndex)
                             {
                                 var type = Type.GetType(templateType[currentIndex]);
-                                if(type != null)
+                                if (type != null)
                                 {
                                     templates[currentIndex] = Activator.CreateInstance(type) as ScriptTemplate;
                                     Debug.Log("create new:" + currentTemplates.GetType());
@@ -123,7 +123,7 @@ namespace EditorTools
                                     Debug.LogFormat("{0} missing: clear templates", currentTemplates.GetType().FullName);
                                     templates.Clear();
                                 }
-                              
+
                             }
                             else
                             {
@@ -146,8 +146,6 @@ namespace EditorTools
             }
 
         }
-
-
         private void InitEnviroment()
         {
             if (script == null) script = MonoScript.FromScriptableObject(this);
@@ -159,14 +157,13 @@ namespace EditorTools
                 isSetting = true;
             }
         }
-
         private void AddTemplates()
         {
             var assemble = this.GetType().Assembly;
             var allTypes = assemble.GetTypes();
             foreach (var item in allTypes)
             {
-                if (item.IsSubclassOf(typeof(ScriptTemplate)))
+                if (item.IsSubclassOf(typeof(ScriptTemplate)) && !item.IsAbstract)
                 {
                     var template = Activator.CreateInstance(item);
                     templates.Add(template as ScriptTemplate);
@@ -180,14 +177,14 @@ namespace EditorTools
             templateNames = templates.ConvertAll<string>(x => x.Name).ToArray();
             templateType = templates.ConvertAll<string>(x => x.GetType().FullName).ToArray();
         }
-
         public void LoadOldTemplates()
         {
             for (int i = 0; i < templates.Count; i++)
             {
                 if (templates[i] == null)
                 {
-                    templates = null;
+                    Debug.LogFormat("templates[{0}] == null",i);
+                    templates.Clear();
                     return;
                 }
 
@@ -195,7 +192,8 @@ namespace EditorTools
 
                 if (newitem == null)
                 {
-                    templates = null;
+                    Debug.LogFormat("newitem[{0}] == null", i);
+                    templates.Clear();
                     return;
                 }
                 templates[i] = newitem;
@@ -203,7 +201,6 @@ namespace EditorTools
             templateNames = templates.ConvertAll<string>(x => x.Name).ToArray();
             templateType = templates.ConvertAll<string>(x => x.GetType().FullName).ToArray();
         }
-
         private void DrawHead()
         {
             using (var hor = new EditorGUILayout.HorizontalScope())
@@ -222,11 +219,10 @@ namespace EditorTools
             if (!isSetting && GUILayout.Button("Clear", EditorStyles.toolbarButton))
             {
                 if (currentTemplates != null)
-                    currentTemplates.headerInfo = new TempScriptHeader() ;
+                    currentTemplates.headerInfo = new TempScriptHeader();
                 templates.Clear();
             }
         }
-
         private void DrawSettings()
         {
             using (var hor = new EditorGUILayout.HorizontalScope())
@@ -258,8 +254,6 @@ namespace EditorTools
                 }
             }
         }
-
-
     }
     #endregion
 
@@ -325,7 +319,7 @@ namespace EditorTools
             if (!string.IsNullOrEmpty(old.type) && old.GetType().FullName != old.type)
             {
                 var type = Type.GetType(old.type);
-                if(type != null)
+                if (type != null)
                 {
                     var temp = Activator.CreateInstance(type);
                     JsonUtility.FromJsonOverwrite(old.json, temp);
@@ -428,6 +422,8 @@ namespace EditorTools
         protected List<FieldItem> fields = new List<FieldItem>();
         [SerializeField]
         protected List<PropertyItem> propertys = new List<PropertyItem>();
+        [SerializeField]
+        protected List<string> imports = new List<string>();
 
         public string json;
         public string type;
@@ -479,10 +475,9 @@ namespace EditorTools
             }
         }
 
-        public void OnEnable()
+        public virtual void OnEnable()
         {
             type = this.GetType().FullName;
-            Debug.Log(type);
         }
 
         public string CreateScript()
@@ -508,8 +503,7 @@ namespace EditorTools
         {
             json = null;
             json = JsonUtility.ToJson(this);
-            if (string.IsNullOrEmpty(type))
-            {
+            if (string.IsNullOrEmpty(type)){
                 type = this.GetType().FullName;
             }
         }
@@ -573,10 +567,23 @@ namespace EditorTools
             propertyItem.set = EditorGUI.Toggle(setRect, propertyItem.set);
 
         }
-
-        protected virtual CodeNamespace CreateNameSpace()
+        protected string DrawNameSpace(Rect rect, string dataItem)
         {
-            return null;
+            var rect1 = new Rect(rect.x, rect.y, rect.width, EditorGUIUtility.singleLineHeight);
+            return EditorGUI.TextField(rect1, dataItem);
+        }
+        protected virtual CodeTypeDeclaration CreateMainType() { return null; }
+        protected CodeNamespace CreateNameSpace()
+        {
+            var type = CreateMainType();
+            if (type == null)
+            {
+                return null;
+            }
+            CodeNamespace nameSpace = new CodeNamespace(headerInfo.nameSpace);
+            nameSpace.Types.Add(type);
+            nameSpace.Imports.AddRange(imports.ConvertAll<CodeNamespaceImport>(x => new CodeNamespaceImport(x)).ToArray());
+            return nameSpace;
         }
         protected string GetHeader()
         {
@@ -714,6 +721,102 @@ namespace EditorTools
             }
         }
     }
+
+    public abstract class ClassTemplate : ScriptTemplate
+    {
+        protected ReorderableList nameSpaceList;
+        protected ReorderableList fieldsList;
+        protected ReorderableList propertyList;
+
+        public ClassTemplate()
+        {
+            fieldsList = new ReorderableList(fields, typeof(string));
+            fieldsList.onAddCallback += (x) => { fields.Add(new FieldItem()); };
+            fieldsList.drawHeaderCallback += (x) => { EditorGUI.LabelField(x, "字段"); };
+            fieldsList.drawElementCallback += (x, y, z, w) =>
+            {
+                DrawFieldItem(x, fields[y], true);
+            };
+
+            nameSpaceList = new ReorderableList(imports, typeof(string));
+            nameSpaceList.onAddCallback += (x) => { imports.Add(""); };
+            nameSpaceList.drawHeaderCallback += (x) => { EditorGUI.LabelField(x, "命名空间"); };
+            nameSpaceList.drawElementCallback += (x, y, z, w) =>
+            {
+                imports[y] = DrawNameSpace(x, imports[y]);
+            };
+
+            propertyList = new ReorderableList(propertys, typeof(string));
+            propertyList.onAddCallback += (x) => { propertys.Add(new PropertyItem()); };
+            propertyList.drawHeaderCallback += (x) => { EditorGUI.LabelField(x, "属性"); };
+            propertyList.elementHeightCallback = (x) => { return 2 * EditorGUIUtility.singleLineHeight; };
+            propertyList.drawElementCallback += (x, y, z, w) =>
+            {
+                DrawPropertyItem(x, propertys[y]);
+            };
+
+        }
+
+        protected override CodeTypeDeclaration CreateMainType()
+        {
+            List<CodeMemberField> fields = new List<CodeMemberField>();
+            foreach (var item in base.fields)
+            {
+                CodeMemberField prop = new CodeMemberField();
+                prop.Type = new CodeTypeReference(item.type, CodeTypeReferenceOptions.GenericTypeParameter);
+                prop.Attributes = MemberAttributes.Public;
+                prop.Name = item.elementName;
+                prop.Comments.Add(new CodeCommentStatement(item.comment));
+                fields.Add(prop);
+            }
+
+            List<CodeMemberProperty> propertysMemper = new List<CodeMemberProperty>();
+            foreach (var item in propertys)
+            {
+                CodeMemberProperty prop = new CodeMemberProperty();
+                prop.Type = new CodeTypeReference(item.type, CodeTypeReferenceOptions.GenericTypeParameter);
+                prop.Attributes = MemberAttributes.Public | MemberAttributes.Static;
+                prop.Name = item.elementName;
+                prop.HasGet = item.get;
+                prop.HasSet = item.set;
+                //CodeExpression invokeExpression = new CodePropertyReferenceExpression();
+                if(item.get) prop.GetStatements.Add(new CodeMethodReturnStatement(new CodePrimitiveExpression(null)));
+                prop.Comments.Add(new CodeCommentStatement(item.comment));
+                propertysMemper.Add(prop);
+            }
+
+            CodeTypeDeclaration wrapProxyClass = new CodeTypeDeclaration(headerInfo.scriptName);
+            wrapProxyClass.TypeAttributes = System.Reflection.TypeAttributes.Public;
+            wrapProxyClass.IsClass = true;
+           
+            foreach (var field in fields){
+                wrapProxyClass.Members.Add(field);
+            }
+            foreach (var prop in propertysMemper)
+            {
+                wrapProxyClass.Members.Add(prop);
+            }
+            return wrapProxyClass;
+        }
+
+        public override void OnBodyGUI()
+        {
+            nameSpaceList.DoLayoutList();
+            fieldsList.DoLayoutList();
+            propertyList.DoLayoutList();
+        }
+    }
+
+    public abstract class ChildClassTemplate : ClassTemplate
+    {
+        protected virtual Type baseType { get { return typeof(object); } }
+        protected override CodeTypeDeclaration CreateMainType()
+        {
+            var wrapProxyClass = base.CreateMainType();
+            wrapProxyClass.BaseTypes.Add(new CodeTypeReference(baseType));
+            return wrapProxyClass;
+        }
+    }
     #endregion
 
     #region Enum
@@ -750,7 +853,7 @@ namespace EditorTools
             };
         }
 
-        protected override CodeNamespace CreateNameSpace()
+        protected override CodeTypeDeclaration CreateMainType()
         {
             List<CodeMemberField> fields = new List<CodeMemberField>();
             foreach (var item in base.fields)
@@ -773,9 +876,7 @@ namespace EditorTools
                 wrapProxyClass.Members.Add(field);
             }
 
-            CodeNamespace nameSpace = new CodeNamespace(headerInfo.nameSpace);
-            nameSpace.Types.Add(wrapProxyClass);
-            return nameSpace;
+            return wrapProxyClass;
         }
         public override void OnBodyGUI()
         {
@@ -789,9 +890,9 @@ namespace EditorTools
     /// 2.数据模拟类
     /// </summary>
     [Serializable]
-    public class DataModelTemplate : ScriptTemplate
+    public class DataModelTemplate : ClassTemplate
     {
-        [MenuItem("Assets/Create/C# TempScripts/Model", priority = 5)]
+        [MenuItem("Assets/Create/C# TempScripts/Normal", priority = 5)]
         static void CreateModel()
         {
             TempScriptHelper.QuickCreateTemplate<DataModelTemplate>();
@@ -800,210 +901,24 @@ namespace EditorTools
         {
             get
             {
-                return "Model";
+                return "Normal";
             }
         }
-
-        [SerializeField]
-        private List<string> imports = new List<string>() {
-            "System",
-            "UnityEngine",
-            "UnityEngine.UI",
-            "System.Collections",
-            "System.Collections.Generic",
-        };
-        private ReorderableList nameSpaceList;
-        private ReorderableList reorderableList;
-
         public DataModelTemplate()
         {
-            reorderableList = new ReorderableList(fields, typeof(string));
-            reorderableList.onAddCallback += (x) => { fields.Add(new FieldItem()); };
-            reorderableList.drawHeaderCallback += (x) => { EditorGUI.LabelField(x, "模型名"); };
-            reorderableList.drawElementCallback += (x, y, z, w) =>
-            {
-                DrawFieldItem(x, fields[y], true);
-            };
-
-            nameSpaceList = new ReorderableList(imports, typeof(string));
-            nameSpaceList.onAddCallback += (x) => { imports.Add(""); };
-            nameSpaceList.drawHeaderCallback += (x) => { EditorGUI.LabelField(x, "命名空间"); };
-            nameSpaceList.drawElementCallback += (x, y, z, w) =>
-            {
-                imports[y] = DrawNameSpace(x, imports[y]);
-            };
+            imports.AddRange(new string[] { "System", "UnityEngine" });
         }
-
-        protected override CodeNamespace CreateNameSpace()
+        protected override CodeTypeDeclaration CreateMainType()
         {
-            List<CodeMemberField> fields = new List<CodeMemberField>();
-            foreach (var item in base.fields)
-            {
-                CodeMemberField prop = new CodeMemberField();
-                prop.Type = new CodeTypeReference(item.type, CodeTypeReferenceOptions.GenericTypeParameter);
-                prop.Attributes = MemberAttributes.Public;
-                prop.Name = item.elementName;
-                prop.Comments.Add(new CodeCommentStatement(item.comment));
-                fields.Add(prop);
-            }
-
-            CodeTypeDeclaration wrapProxyClass = new CodeTypeDeclaration(headerInfo.scriptName);
-            wrapProxyClass.TypeAttributes = System.Reflection.TypeAttributes.Public;
-            wrapProxyClass.CustomAttributes.Add(new CodeAttributeDeclaration(typeof(System.SerializableAttribute).FullName));
-            wrapProxyClass.IsClass = true;
-            var destription = string.IsNullOrEmpty(headerInfo.description) ? "数据模型" : headerInfo.description;
+            var wrapProxyClass = base.CreateMainType();
+            var destription = string.IsNullOrEmpty(headerInfo.description) ? "类" : headerInfo.description;
+            //wrapProxyClass.CustomAttributes.Add(new CodeAttributeDeclaration("System.Serializable"));
             wrapProxyClass.Comments.Add(new CodeCommentStatement("<summary>", true));
             wrapProxyClass.Comments.Add(new CodeCommentStatement(destription, true));
             wrapProxyClass.Comments.Add(new CodeCommentStatement("<summary>", true));
-            foreach (var field in fields)
-            {
-                wrapProxyClass.Members.Add(field);
-            }
-            CodeNamespace nameSpace = new CodeNamespace(headerInfo.nameSpace);
-            nameSpace.Types.Add(wrapProxyClass);
-            nameSpace.Imports.AddRange(imports.ConvertAll<CodeNamespaceImport>(x => new CodeNamespaceImport(x)).ToArray());
-            return nameSpace;
-        }
-
-
-        private string DrawNameSpace(Rect rect, string dataItem)
-        {
-            var rect1 = new Rect(rect.x, rect.y, rect.width, EditorGUIUtility.singleLineHeight);
-            return EditorGUI.TextField(rect1, dataItem);
-        }
-
-        public override void OnBodyGUI()
-        {
-            nameSpaceList.DoLayoutList();
-            reorderableList.DoLayoutList();
+            return wrapProxyClass;
         }
     }
-    #endregion
-
-    #region Static
-    /// <summary>
-    /// 3.静态类
-    /// </summary>
-    [Serializable]
-    public class StaticClassTemplate : ScriptTemplate
-    {
-        [MenuItem("Assets/Create/C# TempScripts/Static", priority = 5)]
-        static void CreateModel()
-        {
-            TempScriptHelper.QuickCreateTemplate<StaticClassTemplate>();
-        }
-        public override string Name
-        {
-            get
-            {
-                return "Static";
-            }
-        }
-
-        [SerializeField]
-        private List<string> imports = new List<string>() {
-            "System",
-            "UnityEngine"
-        };
-        private ReorderableList nameSpaceList;
-        private ReorderableList propertyList;
-        private ReorderableList fieldList;
-
-        public StaticClassTemplate()
-        {
-            fieldList = new ReorderableList(fields, typeof(string));
-            fieldList.onAddCallback += (x) => { fields.Add(new FieldItem()); };
-            fieldList.drawHeaderCallback += (x) => { EditorGUI.LabelField(x, "字段"); };
-            fieldList.drawElementCallback += (x, y, z, w) =>
-            {
-                DrawFieldItem(x, fields[y], true);
-            };
-
-            propertyList = new ReorderableList(propertys, typeof(string));
-            propertyList.onAddCallback += (x) => { propertys.Add(new PropertyItem()); };
-            propertyList.drawHeaderCallback += (x) => { EditorGUI.LabelField(x, "属性"); };
-            propertyList.elementHeightCallback = (x) => { return 2 * EditorGUIUtility.singleLineHeight; };
-            propertyList.drawElementCallback += (x, y, z, w) =>
-            {
-                DrawPropertyItem(x, propertys[y]);
-            };
-
-            nameSpaceList = new ReorderableList(imports, typeof(string));
-            nameSpaceList.onAddCallback += (x) => { imports.Add(""); };
-            nameSpaceList.drawHeaderCallback += (x) => { EditorGUI.LabelField(x, "命名空间"); };
-            nameSpaceList.drawElementCallback += (x, y, z, w) =>
-            {
-                imports[y] = DrawNameSpace(x, imports[y]);
-            };
-        }
-
-
-        protected override CodeNamespace CreateNameSpace()
-        {
-            List<CodeMemberField> codeFields = new List<CodeMemberField>();
-            foreach (var item in fields)
-            {
-                CodeMemberField field = new CodeMemberField();
-                field.Type = new CodeTypeReference(item.type, CodeTypeReferenceOptions.GenericTypeParameter);
-                field.Attributes = MemberAttributes.Public | MemberAttributes.Static;
-                field.Name = item.elementName;
-                //field.InitExpression = invokeExpression;
-                field.Comments.Add(new CodeCommentStatement(item.comment));
-                codeFields.Add(field);
-            }
-
-
-            List<CodeMemberProperty> propertysMemper = new List<CodeMemberProperty>();
-            foreach (var item in propertys)
-            {
-                CodeMemberProperty prop = new CodeMemberProperty();
-                prop.Type = new CodeTypeReference(item.type, CodeTypeReferenceOptions.GenericTypeParameter);
-                prop.Attributes = MemberAttributes.Public|MemberAttributes.Static;
-                prop.Name = item.elementName;
-                prop.HasGet = item.get;
-                prop.HasSet = item.set;
-                //CodeExpression invokeExpression = new CodePropertyReferenceExpression();
-                prop.GetStatements.Add(new CodeMethodReturnStatement(new CodePrimitiveExpression(null)));
-                prop.Comments.Add(new CodeCommentStatement(item.comment));
-                propertysMemper.Add(prop);
-            }
-
-            CodeTypeDeclaration wrapProxyClass = new CodeTypeDeclaration(headerInfo.scriptName);
-            wrapProxyClass.TypeAttributes = System.Reflection.TypeAttributes.Public;//没有静态？
-            wrapProxyClass.Attributes = MemberAttributes.Static;
-            wrapProxyClass.IsClass = true;
-            var destription = string.IsNullOrEmpty(headerInfo.description) ? "静态类" : headerInfo.description;
-            wrapProxyClass.Comments.Add(new CodeCommentStatement("<summary>", true));
-            wrapProxyClass.Comments.Add(new CodeCommentStatement(destription, true));
-            wrapProxyClass.Comments.Add(new CodeCommentStatement("<summary>", true));
-            foreach (var prop in propertysMemper)
-            {
-                wrapProxyClass.Members.Add(prop);
-            }
-            foreach (var field in codeFields)
-            {
-                wrapProxyClass.Members.Add(field);
-            }
-            CodeNamespace nameSpace = new CodeNamespace(headerInfo.nameSpace);
-            nameSpace.Types.Add(wrapProxyClass);
-            nameSpace.Imports.AddRange(imports.ConvertAll<CodeNamespaceImport>(x => new CodeNamespaceImport(x)).ToArray());
-            return nameSpace;
-        }
-
-        private string DrawNameSpace(Rect rect, string dataItem)
-        {
-            var rect1 = new Rect(rect.x, rect.y, rect.width, EditorGUIUtility.singleLineHeight);
-            return EditorGUI.TextField(rect1, dataItem);
-        }
-
-        public override void OnBodyGUI()
-        {
-            nameSpaceList.DoLayoutList();
-            fieldList.DoLayoutList();
-            propertyList.DoLayoutList();
-        }
-    }
-
     #endregion
 
     #region Struct
@@ -1026,23 +941,22 @@ namespace EditorTools
                 return "Struct";
             }
         }
-
-        [SerializeField]
-        private List<string> imports = new List<string>() {
-            "System",
-            "UnityEngine",
-            "UnityEngine.UI",
-            "System.Collections",
-            "System.Collections.Generic",
-        };
         private ReorderableList nameSpaceList;
         private ReorderableList reorderableList;
 
         public StructTempate()
         {
+            imports.AddRange(new List<string>() {
+            "System",
+            "UnityEngine",
+            "UnityEngine.UI",
+            "System.Collections",
+            "System.Collections.Generic",
+        });
+
             reorderableList = new ReorderableList(fields, typeof(string));
             reorderableList.onAddCallback += (x) => { fields.Add(new FieldItem()); };
-            reorderableList.drawHeaderCallback += (x) => { EditorGUI.LabelField(x, "模型名"); };
+            reorderableList.drawHeaderCallback += (x) => { EditorGUI.LabelField(x, "字段"); };
             reorderableList.drawElementCallback += (x, y, z, w) =>
             {
                 DrawFieldItem(x, fields[y], true);
@@ -1057,7 +971,7 @@ namespace EditorTools
             };
         }
 
-        protected override CodeNamespace CreateNameSpace()
+        protected override CodeTypeDeclaration CreateMainType()
         {
             List<CodeMemberField> fields = new List<CodeMemberField>();
             foreach (var item in base.fields)
@@ -1077,20 +991,11 @@ namespace EditorTools
             wrapProxyClass.Comments.Add(new CodeCommentStatement("<summary>", true));
             wrapProxyClass.Comments.Add(new CodeCommentStatement(destription, true));
             wrapProxyClass.Comments.Add(new CodeCommentStatement("<summary>", true));
-            foreach (var field in fields)
-            {
+            foreach (var field in fields){
                 wrapProxyClass.Members.Add(field);
             }
-            CodeNamespace nameSpace = new CodeNamespace(headerInfo.nameSpace);
-            nameSpace.Types.Add(wrapProxyClass);
-            nameSpace.Imports.AddRange(imports.ConvertAll<CodeNamespaceImport>(x => new CodeNamespaceImport(x)).ToArray());
-            return nameSpace;
-        }
 
-        private string DrawNameSpace(Rect rect, string dataItem)
-        {
-            var rect1 = new Rect(rect.x, rect.y, rect.width, EditorGUIUtility.singleLineHeight);
-            return EditorGUI.TextField(rect1, dataItem);
+            return wrapProxyClass;
         }
 
         public override void OnBodyGUI()
@@ -1113,7 +1018,6 @@ namespace EditorTools
         {
             TempScriptHelper.QuickCreateTemplate<InterfaceTempate>();
         }
-
         public override string Name
         {
             get
@@ -1121,17 +1025,12 @@ namespace EditorTools
                 return "Interface";
             }
         }
-
-        [SerializeField]
-        private List<string> imports = new List<string>() {
-            "System",
-            "UnityEngine"
-        };
         private ReorderableList nameSpaceList;
         private ReorderableList reorderableList;
 
         public InterfaceTempate()
         {
+            imports.AddRange(new List<string> { "System", "UnityEngine" });
             reorderableList = new ReorderableList(propertys, typeof(string));
             reorderableList.onAddCallback += (x) => { propertys.Add(new PropertyItem()); };
             reorderableList.drawHeaderCallback += (x) => { EditorGUI.LabelField(x, "属性"); };
@@ -1151,7 +1050,7 @@ namespace EditorTools
         }
 
 
-        protected override CodeNamespace CreateNameSpace()
+        protected override CodeTypeDeclaration CreateMainType()
         {
             List<CodeMemberProperty> propertysMemper = new List<CodeMemberProperty>();
             foreach (var item in propertys)
@@ -1177,16 +1076,7 @@ namespace EditorTools
             {
                 wrapProxyClass.Members.Add(prop);
             }
-            CodeNamespace nameSpace = new CodeNamespace(headerInfo.nameSpace);
-            nameSpace.Types.Add(wrapProxyClass);
-            nameSpace.Imports.AddRange(imports.ConvertAll<CodeNamespaceImport>(x => new CodeNamespaceImport(x)).ToArray());
-            return nameSpace;
-        }
-
-        private string DrawNameSpace(Rect rect, string dataItem)
-        {
-            var rect1 = new Rect(rect.x, rect.y, rect.width, EditorGUIUtility.singleLineHeight);
-            return EditorGUI.TextField(rect1, dataItem);
+            return wrapProxyClass;
         }
 
         public override void OnBodyGUI()
@@ -1197,8 +1087,88 @@ namespace EditorTools
     }
     #endregion
 
+    #region MonoBehaiver
+    public class MonoBehaiverTemplate : ChildClassTemplate
+    {
+        [MenuItem("Assets/Create/C# TempScripts/Monobehaiver", priority = 5)]
+        static void CreateEnum()
+        {
+            TempScriptHelper.QuickCreateTemplate<MonoBehaiverTemplate>();
+        }
+        public override string Name
+        {
+            get
+            {
+                return "Monobehaiver";
+            }
+        }
+        protected override Type baseType
+        {
+            get
+            {
+                return typeof(MonoBehaviour);
+            }
+        }
+        public MonoBehaiverTemplate()
+        {
+            imports.AddRange(new List<string> {
+            "System",
+            "UnityEngine",
+            "UnityEngine.UI",
+            "System.Collections",
+            "System.Collections.Generic" });
+        }
+        protected override CodeTypeDeclaration CreateMainType()
+        {
+            var wrapProxyClass = base.CreateMainType();
+            var destription = string.IsNullOrEmpty(headerInfo.description) ? "MonoBehaiver" : headerInfo.description;
+            wrapProxyClass.Comments.Add(new CodeCommentStatement("<summary>", true));
+            wrapProxyClass.Comments.Add(new CodeCommentStatement(destription, true));
+            wrapProxyClass.Comments.Add(new CodeCommentStatement("<summary>", true));
+            return wrapProxyClass;
+        }
+    }
+    #endregion
 
-    ///下面可以自定义你的代码生成模板,并在窗体方法RegistTempates中注册
+    #region Scriptable
+    /// <summary>
+    /// scriptableObject
+    /// </summary>
+    [Serializable]
+    public class ScriptableObjTempate : ChildClassTemplate
+    {
+        [MenuItem("Assets/Create/C# TempScripts/Scriptable", priority = 5)]
+        static void CreateEnum()
+        {
+            TempScriptHelper.QuickCreateTemplate<ScriptableObjTempate>();
+        }
+        public override string Name
+        {
+            get
+            {
+                return "Scriptable";
+            }
+        }
+        protected override Type baseType
+        {
+            get
+            {
+                return typeof(ScriptableObject);
+            }
+        }
+        protected override CodeTypeDeclaration CreateMainType()
+        {
+            var wrapProxyClass = base.CreateMainType();
+            var destription = string.IsNullOrEmpty(headerInfo.description) ? "Scriptable对象" : headerInfo.description;
+            wrapProxyClass.Comments.Add(new CodeCommentStatement("<summary>", true));
+            wrapProxyClass.Comments.Add(new CodeCommentStatement(destription, true));
+            wrapProxyClass.Comments.Add(new CodeCommentStatement("<summary>", true));
+            return wrapProxyClass;
+        }
+    }
+    #endregion
+
+    ///无限制自定义(只要继承于ScriptTemplate,并且不是抽象类,都可以自己加载到窗体上,快捷方式得自己定义(..还没实现自动添加))
     ///...
     /// <summary>
     /// UI模板
