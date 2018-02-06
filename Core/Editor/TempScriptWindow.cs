@@ -36,7 +36,6 @@ namespace EditorTools
             window.wantsMouseMove = true;
         }
 
-
         [SerializeField]
         public List<ScriptTemplate> templates;
         ScriptTemplate currentTemplates { get { if (templates != null && templates.Count > currentIndex) return templates[currentIndex]; return null; } }
@@ -267,9 +266,21 @@ namespace EditorTools
         public string author;
         public string time;
         public string description;
-        public List<string> detailInfo = new List<string>();
+        public List<string> detailInfo;
         public string scriptName;
         public string nameSpace;
+
+        public TempScriptHeader CreateCopy()
+        {
+            var copy = new TempScriptHeader();
+            copy.author = author;
+            copy.time = this.time;
+            copy.description = this.description;
+            copy.scriptName = this.scriptName;
+            copy.nameSpace = nameSpace;
+            copy.detailInfo = new List<string>(detailInfo);
+            return copy;
+        }
 
         public void Update()
         {
@@ -428,10 +439,12 @@ namespace EditorTools
         public string json;
         public string type;
         public TempScriptHeader headerInfo = new TempScriptHeader();
-        public string path;
+        protected string path;
         public virtual string Name { get { return null; } }
         private ReorderableList detailList;
 
+        protected static TempScriptHeader common_headerInfo;
+        
         public virtual void OnBodyGUI() { }
         public virtual void OnFootGUI()
         {
@@ -467,9 +480,17 @@ namespace EditorTools
                 }
                 using (var vertical = new EditorGUILayout.VerticalScope(GUILayout.Width(60)))
                 {
-                    if (GUILayout.Button("Create", EditorStyles.miniButtonRight, GUILayout.Height(60)))
+                    if (GUILayout.Button("Create", EditorStyles.miniButtonRight, GUILayout.Height(30)))
                     {
                         OnCreateButtonClicked();
+                    }
+                    if (GUILayout.Button("Copy", EditorStyles.miniButtonRight, GUILayout.Height(15)))
+                    {
+                        common_headerInfo = headerInfo;
+                    }
+                    if (GUILayout.Button("Paste", EditorStyles.miniButtonRight, GUILayout.Height(15)))
+                    {
+                        headerInfo = common_headerInfo.CreateCopy();
                     }
                 }
             }
@@ -1155,6 +1176,14 @@ namespace EditorTools
             {
                 return typeof(ScriptableObject);
             }
+        }
+        public ScriptableObjTempate()
+        {
+            imports.AddRange(new List<string> {
+            "UnityEngine",
+            "System.Collections",
+            "System.Collections.Generic"
+            });
         }
         protected override CodeTypeDeclaration CreateMainType()
         {
