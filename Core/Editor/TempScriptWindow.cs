@@ -266,7 +266,7 @@ namespace EditorTools
         public string author;
         public string time;
         public string description;
-        public List<string> detailInfo;
+        public List<string> detailInfo = new List<string>();
         public string scriptName;
         public string nameSpace;
 
@@ -847,7 +847,7 @@ namespace EditorTools
     [Serializable]
     public class EnumScriptTemplate : ScriptTemplate
     {
-        [MenuItem("Assets/Create/C# TempScripts/Enum", priority = 5)]
+        [MenuItem("Assets/Create/Custom C#/Enum", false, 80)]
         static void CreateEnum()
         {
             TempScriptHelper.QuickCreateTemplate<EnumScriptTemplate>();
@@ -913,7 +913,7 @@ namespace EditorTools
     [Serializable]
     public class DataModelTemplate : ClassTemplate
     {
-        [MenuItem("Assets/Create/C# TempScripts/Normal", priority = 5)]
+        [MenuItem("Assets/Create/Custom C#/Normal", false, 80)]
         static void CreateModel()
         {
             TempScriptHelper.QuickCreateTemplate<DataModelTemplate>();
@@ -949,7 +949,7 @@ namespace EditorTools
     [Serializable]
     public class StructTempate : ScriptTemplate
     {
-        [MenuItem("Assets/Create/C# TempScripts/Struct", priority = 5)]
+        [MenuItem("Assets/Create/Custom C#/Struct", false, 80)]
         static void CreateStruct()
         {
             TempScriptHelper.QuickCreateTemplate<StructTempate>();
@@ -1034,7 +1034,7 @@ namespace EditorTools
     [Serializable]
     public class InterfaceTempate : ScriptTemplate
     {
-        [MenuItem("Assets/Create/C# TempScripts/Interface", priority = 5)]
+        [MenuItem("Assets/Create/Custom C#/Interface", false, 80)]
         static void CreateEnum()
         {
             TempScriptHelper.QuickCreateTemplate<InterfaceTempate>();
@@ -1111,7 +1111,7 @@ namespace EditorTools
     #region MonoBehaiver
     public class MonoBehaiverTemplate : ChildClassTemplate
     {
-        [MenuItem("Assets/Create/C# TempScripts/Monobehaiver", priority = 5)]
+        [MenuItem("Assets/Create/Custom C#/Monobehaiver", false, 80)]
         static void CreateEnum()
         {
             TempScriptHelper.QuickCreateTemplate<MonoBehaiverTemplate>();
@@ -1158,7 +1158,7 @@ namespace EditorTools
     [Serializable]
     public class ScriptableObjTempate : ChildClassTemplate
     {
-        [MenuItem("Assets/Create/C# TempScripts/Scriptable", priority = 5)]
+        [MenuItem("Assets/Create/Custom C#/Scriptable",false, 80)]
         static void CreateEnum()
         {
             TempScriptHelper.QuickCreateTemplate<ScriptableObjTempate>();
